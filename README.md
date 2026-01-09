@@ -1,4 +1,3 @@
-
 # Mister Logo Backend
 
 Express.js backend with email OTP verification, JWT access tokens, and refresh tokens.
@@ -6,6 +5,7 @@ Express.js backend with email OTP verification, JWT access tokens, and refresh t
 ## Setup
 
 Create a `.env` file with:
+
 ```
 PORT=5000
 JWT_SECRET=safsdfgasefasfasfsaf
@@ -28,6 +28,7 @@ FACEBOOK_CALLBACK_URL=http://localhost:5000/api/auth/facebook/callback
 ```
 
 Install and run:
+
 ```
 npm install
 npm run dev   # dev with nodemon
@@ -107,6 +108,7 @@ npm start     # production
 
 - `POST /api/comments` body: `{ postId, text }` add a comment.
 - `GET /api/comments` query params: `postId`, `page?`, `limit?` paginate comments (newest first).
+- `DELETE /api/comments/:commentId` delete a comment owned by the current user.
 
 ## User Profile Routes (Bearer auth required)
 

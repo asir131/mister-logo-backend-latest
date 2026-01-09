@@ -101,7 +101,24 @@ async function getComments(req, res) {
   });
 }
 
+async function deleteComment(req, res) {
+  const userId = req.user.id;
+  const { commentId } = req.params;
+
+  if (!mongoose.isValidObjectId(commentId)) {
+    return res.status(400).json({ error: 'Invalid comment id.' });
+  }
+
+  const comment = await Comment.findOneAndDelete({ _id: commentId, userId });
+  if (!comment) {
+    return res.status(404).json({ error: 'Comment not found.' });
+  }
+
+  return res.status(200).json({ message: 'Comment deleted.' });
+}
+
 module.exports = {
   createComment,
   getComments,
+  deleteComment,
 };
