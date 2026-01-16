@@ -11,6 +11,7 @@ PORT=5000
 JWT_SECRET=safsdfgasefasfasfsaf
 JWT_EXPIRES_IN=1h
 MONGODB_URI=mongodb+srv://afaysal220:Faysal20122@blinkit.typzf.mongodb.net/mister
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
@@ -25,6 +26,13 @@ CLOUDINARY_API_SECRET=cmMy7WcbWPsDjw9ms1UPAaPMK9Y
 FACEBOOK_APP_ID=your_facebook_app_id
 FACEBOOK_APP_SECRET=your_facebook_app_secret
 FACEBOOK_CALLBACK_URL=http://localhost:5000/api/auth/facebook/callback
+
+ADMIN_API_KEY=your_admin_key_here
+ADMIN_EMAIL=admin@admin.com
+ADMIN_PASSWORD=1234
+ADMIN_JWT_EXPIRES_IN=12h
+UBLAST_SHARE_WINDOW_HOURS=48
+UBLAST_BLOCK_DAYS=90
 ```
 
 Install and run:
@@ -128,6 +136,33 @@ npm start     # production
 - `GET /api/users/:userId/overview` returns user + profile + counts (posts, followers, following) + media counts + viewer follow state.
 - `GET /api/users/:userId/posts` query params: `mediaType` (`image|video|audio`), `page?`, `limit?` returns posts for that user and media type.
 
+## Trending & UBlast Routes (Bearer auth required)
+
+- `GET /api/trending` returns top UBlasts, manual pinned posts, and organic posts.
+- `GET /api/ublasts/eligibility` returns eligibility + blockedUntil.
+- `GET /api/ublasts/active` returns active UBlasts with share status info.
+- `POST /api/ublasts/:ublastId/share` body: `{ shareType: "feed" | "story" }` creates a share post.
+- `POST /api/ublasts/:ublastId/submissions` multipart/form-data: `media` (file), optional `proposedDate`.
+
+## Admin Routes (Admin API key required)
+
+Admin auth:
+
+- `POST /api/admin/auth/login` body: `{ email, password }` returns admin JWT token.
+
+All admin routes accept either `Authorization: Bearer <token>` or `x-admin-key: ADMIN_API_KEY`.
+
+- `GET /api/admin/ublasts` list UBlasts (optional `status` query).
+- `POST /api/admin/ublasts` multipart/form-data: `title`, optional `content`, optional `scheduledFor`, optional `media`.
+- `POST /api/admin/ublasts/:ublastId/release` releases a UBlast immediately (24h top trending window) and auto-assigns to eligible users.
+- `GET /api/admin/ublasts/submissions` list submissions (optional `status`, `ublastId`).
+- `PATCH /api/admin/ublasts/submissions/:submissionId` body: `{ status: "approved" | "rejected", reviewNotes? }`.
+- `GET /api/admin/trending/overview` returns top/manual/organic sections for admin dashboard.
+- `GET /api/admin/trending/manual` list manual placements.
+- `POST /api/admin/trending/manual` body: `{ postId, position?, startAt?, endAt? }`.
+- `PATCH /api/admin/trending/manual/:placementId` body: `{ position }` update manual pin position (swaps if occupied).
+- `DELETE /api/admin/trending/manual/:placementId` remove manual placement.
+
 ## Notes
 
 - OTPs expire after 10 minutes and are stored in MongoDB with a TTL index.
@@ -135,3 +170,6 @@ npm start     # production
 - Refresh tokens are opaque, stored hashed in MongoDB, and rotated on each refresh.
 - Facebook/Instagram sharing requires Meta Graph API credentials and permissions.
 - Socket.IO uses JWT auth via `handshake.auth.token`, and emits `message:new` to both participants.
+- Sharing a UBlast creates a feed post from the UBlast media/content.
+- Users with active, unshared UBlast assignments are blocked from creating normal posts until they share.
+- Users must share active UBlasts before creating normal posts.

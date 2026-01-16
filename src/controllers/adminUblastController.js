@@ -1,0 +1,292 @@
+const mongoose = require('mongoose');
+const { validationResult } = require('express-validator');
+
+const UBlast = require('../models/UBlast');
+const UBlastSubmission = require('../models/UBlastSubmission');
+const TrendingPlacement = require('../models/TrendingPlacement');
+const Post = require('../models/Post');
+const { uploadMediaBuffer } = require('../services/cloudinary');
+function handleValidation(req, res) {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  return null;
+}
+
+function detectMediaType(mimetype) {
+  if (!mimetype) return null;
+  if (mimetype.startsWith('image/')) return 'image';
+  if (mimetype.startsWith('video/')) return 'video';
+  if (mimetype.startsWith('audio/')) return 'audio';
+  return null;
+}
+
+async function createUblast(req, res) {
+  const validationError = handleValidation(req, res);
+  if (validationError !== null) return;
+
+  const { title, content, scheduledFor } = req.body;
+
+  let mediaUrl;
+  let mediaType;
+  if (req.file) {
+    mediaType = detectMediaType(req.file.mimetype);
+    if (!mediaType) {
+      return res.status(400).json({ error: 'Unsupported media type.' });
+    }
+    const uploadResult = await uploadMediaBuffer(req.file.buffer, {
+      folder: 'unap/ublasts',
+      resource_type: 'auto',
+    });
+    mediaUrl = uploadResult.secure_url || uploadResult.url;
+  }
+
+  const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
+  const status = scheduledDate ? 'scheduled' : 'draft';
+
+  const created = await UBlast.create({
+    title,
+    content,
+    mediaUrl,
+    mediaType,
+    status,
+    scheduledFor: scheduledDate || undefined,
+    createdBy: req.user?.id,
+  });
+
+  return res.status(201).json({ ublast: created });
+}
+
+async function releaseUblast(req, res) {
+  const { ublastId } = req.params;
+  if (!mongoose.isValidObjectId(ublastId)) {
+    return res.status(400).json({ error: 'Invalid UBlast id.' });
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+  const updated = await UBlast.findByIdAndUpdate(
+    ublastId,
+    {
+      $set: {
+        status: 'released',
+        releasedAt: now,
+        expiresAt,
+      },
+    },
+    { new: true },
+  );
+
+  if (!updated) {
+    return res.status(404).json({ error: 'UBlast not found.' });
+  }
+
+  return res.status(200).json({ ublast: updated });
+}
+
+async function listUblasts(req, res) {
+  const match = {};
+  if (req.query.status) {
+    match.status = req.query.status;
+  }
+  const ublasts = await UBlast.find(match)
+    .sort({ createdAt: -1 })
+    .limit(100)
+    .lean();
+  return res.status(200).json({ ublasts });
+}
+
+async function listSubmissions(req, res) {
+  const match = {};
+  if (req.query.status) {
+    match.status = req.query.status;
+  }
+  if (req.query.ublastId && mongoose.isValidObjectId(req.query.ublastId)) {
+    match.ublastId = req.query.ublastId;
+  }
+
+  const submissions = await UBlastSubmission.find(match)
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .populate('userId', 'name email')
+    .populate('ublastId', 'title')
+    .lean();
+
+  return res.status(200).json({ submissions });
+}
+
+async function reviewSubmission(req, res) {
+  const validationError = handleValidation(req, res);
+  if (validationError !== null) return;
+
+  const { submissionId } = req.params;
+  if (!mongoose.isValidObjectId(submissionId)) {
+    return res.status(400).json({ error: 'Invalid submission id.' });
+  }
+
+  const { status, reviewNotes } = req.body;
+
+  const updated = await UBlastSubmission.findByIdAndUpdate(
+    submissionId,
+    {
+      $set: {
+        status,
+        reviewNotes: reviewNotes || undefined,
+        reviewedAt: new Date(),
+        reviewedBy: req.user?.id,
+      },
+    },
+    { new: true },
+  );
+
+  if (!updated) {
+    return res.status(404).json({ error: 'Submission not found.' });
+  }
+
+  return res.status(200).json({ submission: updated });
+}
+
+
+async function listManualPlacements(req, res) {
+  const now = new Date();
+  const placements = await TrendingPlacement.find({
+    section: 'manual',
+    $or: [{ endAt: null }, { endAt: { $gt: now } }],
+  })
+    .sort({ position: 1, createdAt: -1 })
+    .lean();
+  return res.status(200).json({ placements });
+}
+
+async function createManualPlacement(req, res) {
+  const validationError = handleValidation(req, res);
+  if (validationError !== null) return;
+
+  const { postId, position, startAt, endAt } = req.body;
+  const postExists = await Post.exists({ _id: postId });
+  if (!postExists) {
+    return res.status(404).json({ error: 'Post not found.' });
+  }
+
+  const normalizedPosition = Number.isFinite(Number(position))
+    ? Number(position)
+    : null;
+
+  if (normalizedPosition !== null && (normalizedPosition < 1 || normalizedPosition > 16)) {
+    return res
+      .status(400)
+      .json({ error: 'Position must be between 1 and 16.' });
+  }
+
+  const now = new Date();
+  const activeMatch = {
+    section: 'manual',
+    $or: [{ endAt: null }, { endAt: { $gt: now } }],
+  };
+
+  let finalPosition = normalizedPosition;
+  if (finalPosition === null) {
+    const existing = await TrendingPlacement.find(activeMatch)
+      .select('position')
+      .lean();
+    const used = new Set(existing.map((entry) => entry.position));
+    for (let i = 1; i <= 16; i += 1) {
+      if (!used.has(i)) {
+        finalPosition = i;
+        break;
+      }
+    }
+  }
+
+  if (!finalPosition) {
+    return res.status(400).json({ error: 'No manual pin slots available.' });
+  }
+
+  const conflict = await TrendingPlacement.exists({
+    ...activeMatch,
+    position: finalPosition,
+  });
+  if (conflict) {
+    return res.status(409).json({ error: 'Manual slot already occupied.' });
+  }
+
+  const created = await TrendingPlacement.create({
+    section: 'manual',
+    postId,
+    position: finalPosition,
+    startAt: startAt ? new Date(startAt) : now,
+    endAt: endAt ? new Date(endAt) : null,
+    createdBy: req.user?.id,
+  });
+
+  return res.status(201).json({ placement: created });
+}
+
+async function deleteManualPlacement(req, res) {
+  const { placementId } = req.params;
+  if (!mongoose.isValidObjectId(placementId)) {
+    return res.status(400).json({ error: 'Invalid placement id.' });
+  }
+  const result = await TrendingPlacement.deleteOne({ _id: placementId });
+  if (result.deletedCount === 0) {
+    return res.status(404).json({ error: 'Placement not found.' });
+  }
+  return res.status(200).json({ deleted: true });
+}
+
+async function updateManualPlacement(req, res) {
+  const validationError = handleValidation(req, res);
+  if (validationError !== null) return;
+
+  const { placementId } = req.params;
+  if (!mongoose.isValidObjectId(placementId)) {
+    return res.status(400).json({ error: 'Invalid placement id.' });
+  }
+
+  const nextPosition = Number(req.body.position);
+  if (Number.isNaN(nextPosition) || nextPosition < 1 || nextPosition > 16) {
+    return res.status(400).json({ error: 'Position must be between 1 and 16.' });
+  }
+
+  const placement = await TrendingPlacement.findById(placementId);
+  if (!placement) {
+    return res.status(404).json({ error: 'Placement not found.' });
+  }
+
+  const now = new Date();
+  const activeMatch = {
+    section: 'manual',
+    $or: [{ endAt: null }, { endAt: { $gt: now } }],
+  };
+
+  const conflict = await TrendingPlacement.findOne({
+    ...activeMatch,
+    position: nextPosition,
+    _id: { $ne: placement._id },
+  });
+
+  if (conflict) {
+    const currentPosition = placement.position;
+    conflict.position = currentPosition;
+    await conflict.save();
+  }
+
+  placement.position = nextPosition;
+  await placement.save();
+
+  return res.status(200).json({ placement });
+}
+
+module.exports = {
+  createUblast,
+  releaseUblast,
+  listUblasts,
+  listSubmissions,
+  reviewSubmission,
+  listManualPlacements,
+  createManualPlacement,
+  deleteManualPlacement,
+  updateManualPlacement,
+};

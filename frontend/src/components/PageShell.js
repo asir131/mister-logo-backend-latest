@@ -13,6 +13,9 @@ export default function PageShell({ title, subtitle, actions, children }) {
           {subtitle && <p>{subtitle}</p>}
           {actions && <div className="actions">{actions}</div>}
           <div className="actions">
+            <Link className="btn ghost" href="/trending">
+              Trending
+            </Link>
             <Link className="btn ghost" href="/login">
               Login
             </Link>

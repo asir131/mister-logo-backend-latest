@@ -7,6 +7,7 @@ const Comment = require('../models/Comment');
 const SavedPost = require('../models/SavedPost');
 const { uploadMediaBuffer } = require('../services/cloudinary');
 const { enqueuePostShare } = require('../services/shareQueue');
+const UBlast = require('../models/UBlast');
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -30,6 +31,29 @@ async function createPost(req, res) {
 
   const { id: userId } = req.user;
   const { description } = req.body;
+
+  const now = new Date();
+  const activeUblasts = await UBlast.find({
+    status: 'released',
+    expiresAt: { $gt: now },
+  })
+    .select('_id')
+    .lean();
+
+  if (activeUblasts.length > 0) {
+    const shared = await Post.find({
+      userId,
+      ublastId: { $in: activeUblasts.map((ublast) => ublast._id) },
+    })
+      .select('ublastId')
+      .lean();
+
+    if (shared.length < activeUblasts.length) {
+      return res.status(403).json({
+        error: 'You must share active UBlasts before creating new posts.',
+      });
+    }
+  }
 
   if (!req.file) {
     return res.status(400).json({ error: 'Media file is required.' });

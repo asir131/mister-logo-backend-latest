@@ -21,12 +21,20 @@ const feedRoutes = require('./routes/feedRoutes');
 const userRoutes = require('./routes/userRoutes');
 const savedPostRoutes = require('./routes/savedPostRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const trendingRoutes = require('./routes/trendingRoutes');
+const ublastRoutes = require('./routes/ublastRoutes');
+const adminUblastRoutes = require('./routes/adminUblastRoutes');
+const adminAuthRoutes = require('./routes/adminAuthRoutes');
+const { startUblastJobs } = require('./jobs/ublastScheduler');
 
 const app = express();
 const server = http.createServer(app);
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map((value) => value.trim())
+  : ['http://localhost:3000', 'http://localhost:5173'];
 app.use(
   cors({
-    origin: 'http://localhost:3000',
+    origin: allowedOrigins,
     credentials: true,
   }),
 );
@@ -43,6 +51,10 @@ app.use('/api/feed', feedRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/saved-posts', savedPostRoutes);
 app.use('/api/chats', chatRoutes);
+app.use('/api/trending', trendingRoutes);
+app.use('/api/ublasts', ublastRoutes);
+app.use('/api/admin/auth', adminAuthRoutes);
+app.use('/api/admin', adminUblastRoutes);
 
 // Basic health check
 app.get('/health', (req, res) => {
@@ -62,7 +74,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:3000',
+    origin: allowedOrigins,
     credentials: true,
   },
 });
@@ -99,6 +111,7 @@ io.on('connection', (socket) => {
 app.set('io', io);
 connectDB()
   .then(() => {
+    startUblastJobs();
     server.listen(PORT, () => {
       // Simple startup log for visibility
       console.log(`Server running on port ${PORT}`);

@@ -70,6 +70,7 @@ export default function PostCard({
             {authorName}
           </Link>
           <div className="post-sub">{authorRole}</div>
+          {post.ublastId && <span className="badge">Shared from UBlast</span>}
         </div>
         {canFollow && (
           <button

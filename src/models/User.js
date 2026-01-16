@@ -12,6 +12,9 @@ const userSchema = new mongoose.Schema(
       enum: ['local', 'facebook'],
       default: 'local',
     },
+    isBlocked: { type: Boolean, default: false },
+    isBanned: { type: Boolean, default: false },
+    ublastBlockedUntil: { type: Date },
   },
   { timestamps: true },
 );

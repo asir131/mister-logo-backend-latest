@@ -145,6 +145,7 @@ async function getFeed(req, res) {
           description: 1,
           mediaType: 1,
           mediaUrl: 1,
+          ublastId: 1,
           createdAt: 1,
           likeCount: 1,
           commentCount: 1,

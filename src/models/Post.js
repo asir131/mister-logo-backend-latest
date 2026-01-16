@@ -17,6 +17,14 @@ const postSchema = new mongoose.Schema(
     mediaPublicId: { type: String },
     mimeType: { type: String },
     size: { type: Number },
+    status: {
+      type: String,
+      enum: ['published', 'removed'],
+      default: 'published',
+      index: true,
+    },
+    isApproved: { type: Boolean, default: true, index: true },
+    ublastId: { type: mongoose.Schema.Types.ObjectId, ref: 'UBlast' },
     shareToFacebook: { type: Boolean, default: false },
     shareToInstagram: { type: Boolean, default: false },
     shareStatus: {
