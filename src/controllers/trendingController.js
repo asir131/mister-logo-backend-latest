@@ -1,8 +1,8 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const UBlast = require('../models/UBlast');
-const TrendingPlacement = require('../models/TrendingPlacement');
-const Post = require('../models/Post');
+const UBlast = require("../models/UBlast");
+const TrendingPlacement = require("../models/TrendingPlacement");
+const Post = require("../models/Post");
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
@@ -24,7 +24,7 @@ async function getTrending(req, res) {
   const organicSkip = (organicPage - 1) * limitOrganic;
 
   const activeUblasts = await UBlast.find({
-    status: 'released',
+    status: "released",
     releasedAt: { $lte: now },
     expiresAt: { $gt: now },
   })
@@ -35,7 +35,7 @@ async function getTrending(req, res) {
   const visibilityMatch = {
     $and: [
       {
-        $or: [{ status: 'published' }, { status: { $exists: false } }],
+        $or: [{ status: "published" }, { status: { $exists: false } }],
       },
       {
         $or: [{ isApproved: true }, { isApproved: { $exists: false } }],
@@ -58,7 +58,7 @@ async function getTrending(req, res) {
     : [0, []];
 
   const manualPlacements = await TrendingPlacement.find({
-    section: 'manual',
+    section: "manual",
     $or: [{ endAt: null }, { endAt: { $gt: now } }],
   })
     .sort({ position: 1, createdAt: -1 })
@@ -69,7 +69,9 @@ async function getTrending(req, res) {
     manualSkip,
     manualSkip + limitManual,
   );
-  const manualPostIds = pagedManualPlacements.map((placement) => placement.postId);
+  const manualPostIds = pagedManualPlacements.map(
+    (placement) => placement.postId,
+  );
   const manualPosts = manualPostIds.length
     ? await Post.find({
         _id: { $in: manualPostIds },
@@ -97,12 +99,19 @@ async function getTrending(req, res) {
 
   const organicMatch = {
     $and: [
-      { $or: [{ status: 'published' }, { status: { $exists: false } }] },
+      { $or: [{ status: "published" }, { status: { $exists: false } }] },
       { $or: [{ isApproved: true }, { isApproved: { $exists: false } }] },
     ],
     $or: [{ ublastId: null }, { ublastId: { $exists: false } }],
     ...(excludedIds.size
-      ? { _id: { $nin: Array.from(excludedIds, (id) => new mongoose.Types.ObjectId(id)) } }
+      ? {
+          _id: {
+            $nin: Array.from(
+              excludedIds,
+              (id) => new mongoose.Types.ObjectId(id),
+            ),
+          },
+        }
       : {}),
   };
 
@@ -110,74 +119,78 @@ async function getTrending(req, res) {
     { $match: organicMatch },
     {
       $lookup: {
-        from: 'users',
-        localField: 'userId',
-        foreignField: '_id',
-        as: 'author',
+        from: "users",
+        localField: "userId",
+        foreignField: "_id",
+        as: "author",
       },
     },
-    { $unwind: '$author' },
+    { $unwind: "$author" },
     {
       $match: {
-        'author.isBlocked': { $ne: true },
-        'author.isBanned': { $ne: true },
+        "author.isBlocked": { $ne: true },
+        "author.isBanned": { $ne: true },
       },
     },
     {
       $lookup: {
-        from: 'likes',
-        let: { postId: '$_id' },
+        from: "likes",
+        let: { postId: "$_id" },
         pipeline: [
-          { $match: { $expr: { $eq: ['$postId', '$$postId'] } } },
-          { $count: 'count' },
+          { $match: { $expr: { $eq: ["$postId", "$$postId"] } } },
+          { $count: "count" },
         ],
-        as: 'likeCounts',
+        as: "likeCounts",
       },
     },
     {
       $lookup: {
-        from: 'comments',
-        let: { postId: '$_id' },
+        from: "comments",
+        let: { postId: "$_id" },
         pipeline: [
-          { $match: { $expr: { $eq: ['$postId', '$$postId'] } } },
-          { $count: 'count' },
+          { $match: { $expr: { $eq: ["$postId", "$$postId"] } } },
+          { $count: "count" },
         ],
-        as: 'commentCounts',
+        as: "commentCounts",
       },
     },
     {
       $lookup: {
-        from: 'savedposts',
-        let: { postId: '$_id' },
+        from: "savedposts",
+        let: { postId: "$_id" },
         pipeline: [
-          { $match: { $expr: { $eq: ['$postId', '$$postId'] } } },
-          { $count: 'count' },
+          { $match: { $expr: { $eq: ["$postId", "$$postId"] } } },
+          { $count: "count" },
         ],
-        as: 'savedCounts',
+        as: "savedCounts",
       },
     },
     {
       $addFields: {
-        likeCount: { $ifNull: [{ $arrayElemAt: ['$likeCounts.count', 0] }, 0] },
-        commentCount: { $ifNull: [{ $arrayElemAt: ['$commentCounts.count', 0] }, 0] },
-        saveCount: { $ifNull: [{ $arrayElemAt: ['$savedCounts.count', 0] }, 0] },
+        likeCount: { $ifNull: [{ $arrayElemAt: ["$likeCounts.count", 0] }, 0] },
+        commentCount: {
+          $ifNull: [{ $arrayElemAt: ["$commentCounts.count", 0] }, 0],
+        },
+        saveCount: {
+          $ifNull: [{ $arrayElemAt: ["$savedCounts.count", 0] }, 0],
+        },
       },
     },
     {
       $addFields: {
         ageHours: {
-          $divide: [{ $subtract: [now, '$createdAt'] }, 1000 * 60 * 60],
+          $divide: [{ $subtract: [now, "$createdAt"] }, 1000 * 60 * 60],
         },
         engagementScore: {
           $divide: [
             {
               $add: [
-                { $multiply: ['$likeCount', 3] },
-                { $multiply: ['$commentCount', 2] },
-                { $multiply: ['$saveCount', 4] },
+                { $multiply: ["$likeCount", 3] },
+                { $multiply: ["$commentCount", 2] },
+                { $multiply: ["$saveCount", 4] },
               ],
             },
-            { $pow: [{ $add: ['$ageHours', 2] }, 1.5] },
+            { $pow: [{ $add: ["$ageHours", 2] }, 1.5] },
           ],
         },
       },
@@ -204,20 +217,20 @@ async function getTrending(req, res) {
     { $match: organicMatch },
     {
       $lookup: {
-        from: 'users',
-        localField: 'userId',
-        foreignField: '_id',
-        as: 'author',
+        from: "users",
+        localField: "userId",
+        foreignField: "_id",
+        as: "author",
       },
     },
-    { $unwind: '$author' },
+    { $unwind: "$author" },
     {
       $match: {
-        'author.isBlocked': { $ne: true },
-        'author.isBanned': { $ne: true },
+        "author.isBlocked": { $ne: true },
+        "author.isBanned": { $ne: true },
       },
     },
-    { $count: 'count' },
+    { $count: "count" },
   ];
 
   const [organic, organicCount] = await Promise.all([
@@ -227,9 +240,13 @@ async function getTrending(req, res) {
   const organicTotalCount = organicCount[0]?.count || 0;
 
   const items = [
-    ...topPosts.map((post) => ({ type: 'ublast', post })),
-    ...manual.map((entry) => ({ type: 'manual', post: entry.post, position: entry.position })),
-    ...organic.map((post) => ({ type: 'organic', post })),
+    ...topPosts.map((post) => ({ type: "ublast", post })),
+    ...manual.map((entry) => ({
+      type: "manual",
+      post: entry.post,
+      position: entry.position,
+    })),
+    ...organic.map((post) => ({ type: "organic", post })),
   ];
 
   return res.status(200).json({
