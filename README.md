@@ -147,7 +147,10 @@ npm start     # production
 - `GET /api/ublasts/eligibility` returns eligibility + blockedUntil.
 - `GET /api/ublasts/active` returns active UBlasts with share status info (pagination: `page`, `limit`).
 - `POST /api/ublasts/:ublastId/share` body: `{ shareType: "feed" | "story" }` creates a share post.
-- `POST /api/ublasts/:ublastId/submissions` multipart/form-data: `media` (file), optional `proposedDate`.
+- `POST /api/ublasts/:ublastId/submissions` multipart/form-data: `media` (file), optional `title`, optional `content`, optional `proposedDate`.
+- `POST /api/ublasts/submissions` multipart/form-data: `media` (file), optional `title`, optional `content`, optional `proposedDate`.
+- `GET /api/ublasts/submissions` list the current user's UBlast submissions (pagination: `page`, `limit`).
+- `PATCH /api/ublasts/submissions/:submissionId` multipart/form-data: optional `title`, optional `content`, optional `proposedDate`, optional `media` (file). Only pending submissions can be edited.
 
 ## Admin Routes (Admin API key required)
 

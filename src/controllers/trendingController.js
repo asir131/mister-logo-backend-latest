@@ -26,7 +26,10 @@ async function getTrending(req, res) {
   const activeUblasts = await UBlast.find({
     status: "released",
     releasedAt: { $lte: now },
-    expiresAt: { $gt: now },
+    $or: [
+      { topExpiresAt: { $gt: now } },
+      { topExpiresAt: { $exists: false }, expiresAt: { $gt: now } },
+    ],
   })
     .sort({ releasedAt: -1 })
     .lean();

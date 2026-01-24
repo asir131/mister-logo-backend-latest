@@ -7,6 +7,9 @@ const {
   getEligibility,
   getActiveUblasts,
   submitUblast,
+  submitUblastRequest,
+  listMySubmissions,
+  updateSubmission,
   shareUblast,
 } = require('../controllers/ublastController');
 
@@ -19,6 +22,37 @@ const router = express.Router();
 
 router.get('/eligibility', authenticate, getEligibility);
 router.get('/active', authenticate, getActiveUblasts);
+router.get('/submissions', authenticate, listMySubmissions);
+
+router.post(
+  '/submissions',
+  authenticate,
+  upload.single('media'),
+  [
+    body('title').optional({ nullable: true, checkFalsy: true }).isString(),
+    body('content').optional({ nullable: true, checkFalsy: true }).isString(),
+    body('proposedDate')
+      .optional({ nullable: true, checkFalsy: true })
+      .isISO8601()
+      .withMessage('proposedDate must be a valid date'),
+  ],
+  submitUblastRequest,
+);
+
+router.patch(
+  '/submissions/:submissionId',
+  authenticate,
+  upload.single('media'),
+  [
+    body('title').optional({ nullable: true, checkFalsy: true }).isString(),
+    body('content').optional({ nullable: true, checkFalsy: true }).isString(),
+    body('proposedDate')
+      .optional({ nullable: true, checkFalsy: true })
+      .isISO8601()
+      .withMessage('proposedDate must be a valid date'),
+  ],
+  updateSubmission,
+);
 
 router.post(
   '/:ublastId/share',
@@ -32,6 +66,8 @@ router.post(
   authenticate,
   upload.single('media'),
   [
+    body('title').optional({ nullable: true, checkFalsy: true }).isString(),
+    body('content').optional({ nullable: true, checkFalsy: true }).isString(),
     body('proposedDate')
       .optional({ nullable: true, checkFalsy: true })
       .isISO8601()

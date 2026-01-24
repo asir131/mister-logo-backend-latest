@@ -15,11 +15,13 @@ const ublastSchema = new mongoose.Schema(
     scheduledFor: { type: Date, index: true },
     releasedAt: { type: Date, index: true },
     expiresAt: { type: Date, index: true },
+    topExpiresAt: { type: Date, index: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true },
 );
 
 ublastSchema.index({ status: 1, expiresAt: 1 });
+ublastSchema.index({ status: 1, topExpiresAt: 1 });
 
 module.exports = mongoose.model('UBlast', ublastSchema);

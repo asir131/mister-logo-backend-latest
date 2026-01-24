@@ -118,7 +118,7 @@ async function submitUblast(req, res) {
 
   const { id: userId } = req.user;
   const { ublastId } = req.params;
-  const { proposedDate } = req.body;
+  const { proposedDate, title, content } = req.body;
 
   if (!mongoose.isValidObjectId(ublastId)) {
     return res.status(400).json({ error: 'Invalid UBlast id.' });
@@ -167,6 +167,8 @@ async function submitUblast(req, res) {
       ublastId,
       userId,
       proposedDate: proposedDate ? new Date(proposedDate) : undefined,
+      title: title ? title.trim() : undefined,
+      content: content ? content.trim() : undefined,
       mediaUrl: uploadResult.secure_url || uploadResult.url,
       mediaType,
     });
@@ -286,9 +288,151 @@ async function shareUblastInternal({ userId, ublastId, shareType }) {
   return { post };
 }
 
+async function submitUblastRequest(req, res) {
+  const validationError = handleValidation(req, res);
+  if (validationError !== null) return;
+
+  const { id: userId } = req.user;
+  const { proposedDate, title, content } = req.body;
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'Submission media file is required.' });
+  }
+
+  const user = await User.findById(userId)
+    .select('ublastBlockedUntil isBlocked isBanned')
+    .lean();
+  if (!user) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+  if (isUserIneligible(user)) {
+    return res.status(403).json({ error: 'You are blocked from UBlast submissions.' });
+  }
+
+  const mediaType = detectMediaType(req.file.mimetype);
+  if (!mediaType) {
+    return res.status(400).json({ error: 'Unsupported media type.' });
+  }
+
+  try {
+    const uploadResult = await uploadMediaBuffer(req.file.buffer, {
+      folder: 'unap/ublast-submissions',
+      resource_type: 'auto',
+    });
+
+    const created = await UBlastSubmission.create({
+      userId,
+      proposedDate: proposedDate ? new Date(proposedDate) : undefined,
+      title: title ? title.trim() : undefined,
+      content: content ? content.trim() : undefined,
+      mediaUrl: uploadResult.secure_url || uploadResult.url,
+      mediaType,
+      status: 'pending',
+    });
+
+    return res.status(201).json({ submission: created });
+  } catch (err) {
+    console.error('UBlast request submission error:', err);
+    return res.status(500).json({ error: 'Could not submit UBlast request.' });
+  }
+}
+
+function parsePaging(value, fallback, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  if (max) return Math.min(parsed, max);
+  return parsed;
+}
+
+async function listMySubmissions(req, res) {
+  const userId = req.user.id;
+  const page = parsePaging(req.query.page, 1);
+  const limit = parsePaging(req.query.limit, 12, 50);
+  const skip = (page - 1) * limit;
+
+  const [totalCount, submissions] = await Promise.all([
+    UBlastSubmission.countDocuments({ userId }),
+    UBlastSubmission.find({ userId })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+
+  return res.status(200).json({
+    submissions,
+    page,
+    totalPages,
+    totalCount,
+  });
+}
+
+async function updateSubmission(req, res) {
+  const validationError = handleValidation(req, res);
+  if (validationError !== null) return;
+
+  const userId = req.user.id;
+  const { submissionId } = req.params;
+
+  if (!mongoose.isValidObjectId(submissionId)) {
+    return res.status(400).json({ error: 'Invalid submission id.' });
+  }
+
+  const submission = await UBlastSubmission.findOne({
+    _id: submissionId,
+    userId,
+  });
+  if (!submission) {
+    return res.status(404).json({ error: 'Submission not found.' });
+  }
+
+  if (submission.status !== 'pending') {
+    return res.status(400).json({ error: 'Only pending submissions can be edited.' });
+  }
+
+  const updates = {};
+  if (req.body.title !== undefined) updates.title = req.body.title.trim();
+  if (req.body.content !== undefined) updates.content = req.body.content.trim();
+  if (req.body.proposedDate !== undefined) {
+    updates.proposedDate = req.body.proposedDate
+      ? new Date(req.body.proposedDate)
+      : undefined;
+  }
+
+  if (req.file) {
+    const mediaType = detectMediaType(req.file.mimetype);
+    if (!mediaType) {
+      return res.status(400).json({ error: 'Unsupported media type.' });
+    }
+    const uploadResult = await uploadMediaBuffer(req.file.buffer, {
+      folder: 'unap/ublast-submissions',
+      resource_type: 'auto',
+    });
+    updates.mediaUrl = uploadResult.secure_url || uploadResult.url;
+    updates.mediaType = mediaType;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ error: 'No updates provided.' });
+  }
+
+  const updated = await UBlastSubmission.findOneAndUpdate(
+    { _id: submissionId, userId },
+    { $set: updates },
+    { new: true },
+  );
+
+  return res.status(200).json({ submission: updated });
+}
+
 module.exports = {
   getEligibility,
   getActiveUblasts,
   submitUblast,
+  submitUblastRequest,
+  listMySubmissions,
+  updateSubmission,
   shareUblast,
 };

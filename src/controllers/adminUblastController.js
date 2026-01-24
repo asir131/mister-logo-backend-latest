@@ -3,6 +3,7 @@ const { validationResult } = require('express-validator');
 
 const UBlast = require('../models/UBlast');
 const UBlastSubmission = require('../models/UBlastSubmission');
+const User = require('../models/User');
 const TrendingPlacement = require('../models/TrendingPlacement');
 const Post = require('../models/Post');
 const { uploadMediaBuffer } = require('../services/cloudinary');
@@ -65,7 +66,10 @@ async function releaseUblast(req, res) {
   }
 
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const topExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(
+    now.getTime() + Number(process.env.UBLAST_SHARE_WINDOW_HOURS || 48) * 60 * 60 * 1000,
+  );
 
   const updated = await UBlast.findByIdAndUpdate(
     ublastId,
@@ -74,6 +78,7 @@ async function releaseUblast(req, res) {
         status: 'released',
         releasedAt: now,
         expiresAt,
+        topExpiresAt,
       },
     },
     { new: true },
@@ -143,6 +148,113 @@ async function reviewSubmission(req, res) {
 
   if (!updated) {
     return res.status(404).json({ error: 'Submission not found.' });
+  }
+
+  if (status === 'rejected' && updated.approvedUblastId) {
+    await UBlast.deleteOne({ _id: updated.approvedUblastId });
+    updated.approvedUblastId = undefined;
+    await updated.save();
+    return res.status(200).json({ submission: updated });
+  }
+
+  if (status === 'approved' && !updated.approvedUblastId) {
+    const now = new Date();
+    const proposedDate = updated.proposedDate ? new Date(updated.proposedDate) : null;
+    const shareWindowHours = Number(process.env.UBLAST_SHARE_WINDOW_HOURS || 48);
+    const topExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    const user = await User.findById(updated.userId).select('name').lean();
+    const fallbackTitle = user?.name ? `UBlast from ${user.name}` : 'UBlast Submission';
+    const title = updated.title?.trim() || fallbackTitle;
+    const content = updated.content?.trim() || undefined;
+
+    let statusValue = 'released';
+    let scheduledFor;
+    let releasedAt = now;
+    let expiresAt = new Date(now.getTime() + shareWindowHours * 60 * 60 * 1000);
+
+    if (proposedDate) {
+      scheduledFor = proposedDate;
+      if (proposedDate.getTime() > now.getTime()) {
+        statusValue = 'scheduled';
+        releasedAt = undefined;
+        expiresAt = new Date(
+          proposedDate.getTime() + shareWindowHours * 60 * 60 * 1000,
+        );
+      } else {
+        statusValue = 'released';
+        expiresAt = new Date(
+          proposedDate.getTime() + shareWindowHours * 60 * 60 * 1000,
+        );
+      }
+    }
+
+    const createdUblast = await UBlast.create({
+      title,
+      content,
+      mediaUrl: updated.mediaUrl,
+      mediaType: updated.mediaType,
+      status: statusValue,
+      scheduledFor,
+      releasedAt,
+      expiresAt,
+      topExpiresAt: statusValue === 'released' ? topExpiresAt : undefined,
+      createdBy: updated.userId,
+    });
+
+    updated.approvedUblastId = createdUblast._id;
+    await updated.save();
+  }
+
+  if (status === 'approved' && updated.approvedUblastId) {
+    const existing = await UBlast.findById(updated.approvedUblastId).lean();
+    if (!existing) {
+      const now = new Date();
+      const proposedDate = updated.proposedDate ? new Date(updated.proposedDate) : null;
+      const shareWindowHours = Number(process.env.UBLAST_SHARE_WINDOW_HOURS || 48);
+      const topExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+      const user = await User.findById(updated.userId).select('name').lean();
+      const fallbackTitle = user?.name ? `UBlast from ${user.name}` : 'UBlast Submission';
+      const title = updated.title?.trim() || fallbackTitle;
+      const content = updated.content?.trim() || undefined;
+
+      let statusValue = 'released';
+      let scheduledFor;
+      let releasedAt = now;
+      let expiresAt = new Date(now.getTime() + shareWindowHours * 60 * 60 * 1000);
+
+      if (proposedDate) {
+        scheduledFor = proposedDate;
+        if (proposedDate.getTime() > now.getTime()) {
+          statusValue = 'scheduled';
+          releasedAt = undefined;
+          expiresAt = new Date(
+            proposedDate.getTime() + shareWindowHours * 60 * 60 * 1000,
+          );
+        } else {
+          statusValue = 'released';
+          expiresAt = new Date(
+            proposedDate.getTime() + shareWindowHours * 60 * 60 * 1000,
+          );
+        }
+      }
+
+      const recreated = await UBlast.create({
+        title,
+        content,
+        mediaUrl: updated.mediaUrl,
+        mediaType: updated.mediaType,
+        status: statusValue,
+        scheduledFor,
+        releasedAt,
+        expiresAt,
+        topExpiresAt: statusValue === 'released' ? topExpiresAt : undefined,
+        createdBy: updated.userId,
+      });
+      updated.approvedUblastId = recreated._id;
+      await updated.save();
+    }
   }
 
   return res.status(200).json({ submission: updated });
