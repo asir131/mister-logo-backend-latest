@@ -13,6 +13,7 @@ function parsePaging(value, fallback, max) {
 
 async function getTrending(req, res) {
   const now = new Date();
+  const section = req.query.section ? String(req.query.section).toLowerCase() : null;
   const limitTop = parsePaging(req.query.topLimit, 16, 16);
   const limitManual = parsePaging(req.query.manualLimit, 16, 16);
   const limitOrganic = parsePaging(req.query.organicLimit, 64, 100);
@@ -252,28 +253,49 @@ async function getTrending(req, res) {
     ...organic.map((post) => ({ type: "organic", post })),
   ];
 
+  const meta = {
+    top: {
+      page: topPage,
+      totalPages: Math.max(1, Math.ceil(topTotalCount / limitTop)),
+      totalCount: topTotalCount,
+    },
+    manual: {
+      page: manualPage,
+      totalPages: Math.max(1, Math.ceil(manualTotalCount / limitManual)),
+      totalCount: manualTotalCount,
+    },
+    organic: {
+      page: organicPage,
+      totalPages: Math.max(1, Math.ceil(organicTotalCount / limitOrganic)),
+      totalCount: organicTotalCount,
+    },
+  };
+
+  if (section) {
+    switch (section) {
+      case 'top':
+        return res.status(200).json({ top: topPosts, meta: { top: meta.top } });
+      case 'manual':
+        return res.status(200).json({ manual, meta: { manual: meta.manual } });
+      case 'organic':
+        return res.status(200).json({ organic, meta: { organic: meta.organic } });
+      case 'items':
+        return res.status(200).json({ items });
+      case 'meta':
+        return res.status(200).json({ meta });
+      default:
+        return res.status(400).json({
+          error: 'section must be one of: top, manual, organic, items, meta',
+        });
+    }
+  }
+
   return res.status(200).json({
     top: topPosts,
     manual,
     organic,
     items,
-    meta: {
-      top: {
-        page: topPage,
-        totalPages: Math.max(1, Math.ceil(topTotalCount / limitTop)),
-        totalCount: topTotalCount,
-      },
-      manual: {
-        page: manualPage,
-        totalPages: Math.max(1, Math.ceil(manualTotalCount / limitManual)),
-        totalCount: manualTotalCount,
-      },
-      organic: {
-        page: organicPage,
-        totalPages: Math.max(1, Math.ceil(organicTotalCount / limitOrganic)),
-        totalCount: organicTotalCount,
-      },
-    },
+    meta,
   });
 }
 

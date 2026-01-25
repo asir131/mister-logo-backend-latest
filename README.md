@@ -143,7 +143,7 @@ npm start     # production
 
 ## Trending & UBlast Routes (Bearer auth required)
 
-- `GET /api/trending` returns top/manual/organic sections (pagination: `topPage`, `manualPage`, `organicPage`, `topLimit`, `manualLimit`, `organicLimit`).
+- `GET /api/trending` returns top/manual/organic sections (pagination: `topPage`, `manualPage`, `organicPage`, `topLimit`, `manualLimit`, `organicLimit`). Optional `section` query can return a single block: `top`, `manual`, `organic`, `items`, or `meta`.
 - `GET /api/ublasts/eligibility` returns eligibility + blockedUntil.
 - `GET /api/ublasts/active` returns active UBlasts with share status info (pagination: `page`, `limit`).
 - `POST /api/ublasts/:ublastId/share` body: `{ shareType: "feed" | "story" }` creates a share post.
