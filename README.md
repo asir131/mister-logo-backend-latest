@@ -164,7 +164,7 @@ npm start     # production
 
 ## Unified Share Route (Bearer auth required)
 
-- `POST /api/share` body: `{ type: "post" | "ublast", id: "<postId|ublastId>", shareType?: "feed" | "story" }`
+- `POST /api/share` body: `{ type?: "post" | "ublast", id?: "<postId|ublastId>", postId?: "<postId>", ublastId?: "<ublastId>", shareType?: "feed" | "story" }`
   - Response includes `{ sharedFromUblast: true }` for UBlast shares.
 
 ## Admin Routes (Admin API key required)
