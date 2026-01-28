@@ -473,22 +473,19 @@ async function updatePost(req, res) {
   return res.status(200).json({ post });
 }
 
-async function sharePost(req, res) {
-  const { id: userId } = req.user;
-  const { postId } = req.params;
-
+async function sharePostInternal({ userId, postId }) {
   if (!mongoose.isValidObjectId(postId)) {
-    return res.status(400).json({ error: 'Invalid post id.' });
+    return { status: 400, error: 'Invalid post id.' };
   }
 
   const ublastError = await enforceUblastShareRequirement(userId);
   if (ublastError) {
-    return res.status(403).json({ error: ublastError });
+    return { status: 403, error: ublastError };
   }
 
   const source = await Post.findById(postId).lean();
   if (!source) {
-    return res.status(404).json({ error: 'Post not found.' });
+    return { status: 404, error: 'Post not found.' };
   }
 
   if (
@@ -496,16 +493,16 @@ async function sharePost(req, res) {
     source.status === 'removed' ||
     source.isApproved === false
   ) {
-    return res.status(400).json({ error: 'Post is not available for sharing.' });
+    return { status: 400, error: 'Post is not available for sharing.' };
   }
 
   if (!source.mediaUrl || !source.mediaType) {
-    return res.status(400).json({ error: 'Post media is missing.' });
+    return { status: 400, error: 'Post media is missing.' };
   }
 
   const profile = await Profile.findOne({ userId }).lean();
   if (!profile) {
-    return res.status(400).json({ error: 'Profile required before sharing.' });
+    return { status: 400, error: 'Profile required before sharing.' };
   }
 
   const created = await Post.create({
@@ -547,7 +544,19 @@ async function sharePost(req, res) {
     },
   );
 
-  return res.status(201).json({ post: created });
+  return { post: created };
+}
+
+async function sharePost(req, res) {
+  const { id: userId } = req.user;
+  const { postId } = req.params;
+
+  const result = await sharePostInternal({ userId, postId });
+  if (result.error) {
+    return res.status(result.status).json({ error: result.error });
+  }
+
+  return res.status(201).json({ post: result.post });
 }
 
 function parsePaging(value, fallback, max) {
@@ -902,6 +911,7 @@ module.exports = {
   deletePost,
   updatePost,
   sharePost,
+  sharePostInternal,
   listScheduledPosts,
   updateScheduledPost,
   cancelScheduledPost,

@@ -436,4 +436,5 @@ module.exports = {
   listMySubmissions,
   updateSubmission,
   shareUblast,
+  shareUblastInternal,
 };

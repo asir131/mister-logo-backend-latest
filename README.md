@@ -162,6 +162,11 @@ npm start     # production
 - `GET /api/ublasts/submissions` list the current user's UBlast submissions (pagination: `page`, `limit`).
 - `PATCH /api/ublasts/submissions/:submissionId` multipart/form-data: optional `title`, optional `content`, optional `proposedDate`, optional `media` (file). Only pending submissions can be edited.
 
+## Unified Share Route (Bearer auth required)
+
+- `POST /api/share` body: `{ type: "post" | "ublast", id: "<postId|ublastId>", shareType?: "feed" | "story" }`
+  - Response includes `{ sharedFromUblast: true }` for UBlast shares.
+
 ## Admin Routes (Admin API key required)
 
 Admin auth:

@@ -159,7 +159,6 @@ async function reviewSubmission(req, res) {
 
   if (status === 'approved' && !updated.approvedUblastId) {
     const now = new Date();
-    const proposedDate = updated.proposedDate ? new Date(updated.proposedDate) : null;
     const shareWindowHours = Number(process.env.UBLAST_SHARE_WINDOW_HOURS || 48);
     const topExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
@@ -168,37 +167,16 @@ async function reviewSubmission(req, res) {
     const title = updated.title?.trim() || fallbackTitle;
     const content = updated.content?.trim() || undefined;
 
-    let statusValue = 'released';
-    let scheduledFor;
-    let releasedAt = now;
-    let expiresAt = new Date(now.getTime() + shareWindowHours * 60 * 60 * 1000);
-
-    if (proposedDate) {
-      scheduledFor = proposedDate;
-      if (proposedDate.getTime() > now.getTime()) {
-        statusValue = 'scheduled';
-        releasedAt = undefined;
-        expiresAt = new Date(
-          proposedDate.getTime() + shareWindowHours * 60 * 60 * 1000,
-        );
-      } else {
-        statusValue = 'released';
-        expiresAt = new Date(
-          proposedDate.getTime() + shareWindowHours * 60 * 60 * 1000,
-        );
-      }
-    }
-
     const createdUblast = await UBlast.create({
       title,
       content,
       mediaUrl: updated.mediaUrl,
       mediaType: updated.mediaType,
-      status: statusValue,
-      scheduledFor,
-      releasedAt,
-      expiresAt,
-      topExpiresAt: statusValue === 'released' ? topExpiresAt : undefined,
+      status: 'released',
+      scheduledFor: updated.proposedDate || undefined,
+      releasedAt: now,
+      expiresAt: new Date(now.getTime() + shareWindowHours * 60 * 60 * 1000),
+      topExpiresAt,
       createdBy: updated.userId,
     });
 
@@ -208,48 +186,38 @@ async function reviewSubmission(req, res) {
 
   if (status === 'approved' && updated.approvedUblastId) {
     const existing = await UBlast.findById(updated.approvedUblastId).lean();
-    if (!existing) {
-      const now = new Date();
-      const proposedDate = updated.proposedDate ? new Date(updated.proposedDate) : null;
-      const shareWindowHours = Number(process.env.UBLAST_SHARE_WINDOW_HOURS || 48);
-      const topExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const shareWindowHours = Number(process.env.UBLAST_SHARE_WINDOW_HOURS || 48);
+    const topExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
+    if (existing) {
+      await UBlast.updateOne(
+        { _id: updated.approvedUblastId },
+        {
+          $set: {
+            status: 'released',
+            releasedAt: now,
+            expiresAt: new Date(now.getTime() + shareWindowHours * 60 * 60 * 1000),
+            topExpiresAt,
+          },
+        },
+      );
+    } else {
       const user = await User.findById(updated.userId).select('name').lean();
       const fallbackTitle = user?.name ? `UBlast from ${user.name}` : 'UBlast Submission';
       const title = updated.title?.trim() || fallbackTitle;
       const content = updated.content?.trim() || undefined;
-
-      let statusValue = 'released';
-      let scheduledFor;
-      let releasedAt = now;
-      let expiresAt = new Date(now.getTime() + shareWindowHours * 60 * 60 * 1000);
-
-      if (proposedDate) {
-        scheduledFor = proposedDate;
-        if (proposedDate.getTime() > now.getTime()) {
-          statusValue = 'scheduled';
-          releasedAt = undefined;
-          expiresAt = new Date(
-            proposedDate.getTime() + shareWindowHours * 60 * 60 * 1000,
-          );
-        } else {
-          statusValue = 'released';
-          expiresAt = new Date(
-            proposedDate.getTime() + shareWindowHours * 60 * 60 * 1000,
-          );
-        }
-      }
 
       const recreated = await UBlast.create({
         title,
         content,
         mediaUrl: updated.mediaUrl,
         mediaType: updated.mediaType,
-        status: statusValue,
-        scheduledFor,
-        releasedAt,
-        expiresAt,
-        topExpiresAt: statusValue === 'released' ? topExpiresAt : undefined,
+        status: 'released',
+        scheduledFor: updated.proposedDate || undefined,
+        releasedAt: now,
+        expiresAt: new Date(now.getTime() + shareWindowHours * 60 * 60 * 1000),
+        topExpiresAt,
         createdBy: updated.userId,
       });
       updated.approvedUblastId = recreated._id;
