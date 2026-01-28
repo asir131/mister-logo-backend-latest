@@ -125,8 +125,8 @@ async function enforceUblastShareRequirement(userId) {
     .select('ublastId')
     .lean();
 
-  if (shared.length < activeUblasts.length) {
-    return 'You must share active UBlasts before creating new posts.';
+  if (shared.length < 1) {
+    return 'You must share at least one active UBlast before creating new posts.';
   }
   return null;
 }
