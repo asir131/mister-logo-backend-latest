@@ -7,8 +7,6 @@ const UcutComment = require('../models/UcutComment');
 const Follow = require('../models/Follow');
 const Profile = require('../models/Profile');
 const User = require('../models/User');
-const Conversation = require('../models/Conversation');
-const Message = require('../models/Message');
 const { uploadMediaBuffer } = require('../services/cloudinary');
 const { splitMedia, DEFAULT_SEGMENT_SECONDS } = require('../services/mediaSplit');
 
@@ -31,19 +29,6 @@ function detectMediaType(mimetype) {
 function buildExpiryDate() {
   const hours = Number(process.env.UCUT_EXPIRES_HOURS || 24);
   return new Date(Date.now() + hours * 60 * 60 * 1000);
-}
-
-function makePairKey(a, b) {
-  const [first, second] = [a.toString(), b.toString()].sort();
-  return `${first}:${second}`;
-}
-
-async function ensureMutualFollow(userId, otherUserId) {
-  const [follows, followedBy] = await Promise.all([
-    Follow.exists({ followerId: userId, followingId: otherUserId }),
-    Follow.exists({ followerId: otherUserId, followingId: userId }),
-  ]);
-  return Boolean(follows && followedBy);
 }
 
 async function canViewUcut(viewerId, ownerId) {
@@ -250,7 +235,7 @@ async function listFeed(req, res) {
     const ownerId = ucut.userId.toString();
     const user = userById.get(ownerId);
     const profile = profileById.get(ownerId);
-    const canComment = followBackSet.has(ownerId);
+    const canComment = ownerId !== viewerId.toString();
 
     return {
       ...ucut,
@@ -293,11 +278,6 @@ async function likeUcut(req, res) {
     return res.status(403).json({ error: 'You cannot like your own UCut.' });
   }
 
-  const canView = await canViewUcut(userId, ucut.userId);
-  if (!canView) {
-    return res.status(403).json({ error: 'Not allowed to view this UCut.' });
-  }
-
   await UcutLike.updateOne(
     { ucutId, userId },
     { $setOnInsert: { ucutId, userId } },
@@ -330,11 +310,6 @@ async function listComments(req, res) {
   const ucut = await Ucut.findOne({ _id: ucutId, ...activeUcutFilter() }).lean();
   if (!ucut) {
     return res.status(404).json({ error: 'UCut not found.' });
-  }
-
-  const canView = await canViewUcut(userId, ucut.userId);
-  if (!canView) {
-    return res.status(403).json({ error: 'Not allowed to view this UCut.' });
   }
 
   const page = parsePaging(req.query.page, 1);
@@ -381,65 +356,75 @@ async function addComment(req, res) {
     return res.status(403).json({ error: 'You cannot comment on your own UCut.' });
   }
 
-  const canView = await canViewUcut(userId, ucut.userId);
-  if (!canView) {
-    return res.status(403).json({ error: 'Not allowed to view this UCut.' });
-  }
-
-  const mutual = await ensureMutualFollow(userId, ucut.userId);
-  if (!mutual) {
-    return res.status(403).json({ error: 'Comments require mutual follow.' });
-  }
-
   const comment = await UcutComment.create({
     ucutId,
     userId,
     text,
   });
 
-  const pairKey = makePairKey(userId, ucut.userId);
-  const conversation = await Conversation.findOneAndUpdate(
-    { pairKey },
-    {
-      $setOnInsert: {
-        pairKey,
-        participants: [userId, ucut.userId],
-      },
-    },
-    { new: true, upsert: true },
-  );
+  return res.status(201).json({ comment });
+}
 
-  const message = await Message.create({
-    conversationId: conversation._id,
-    senderId: userId,
-    recipientId: ucut.userId,
-    text: `UCut comment: ${text}`,
-  });
+async function listUserUcuts(req, res) {
+  const viewerId = req.user.id;
+  const { userId } = req.params;
 
-  const lastMessage = {
-    senderId: userId,
-    text: message.text,
-    createdAt: message.createdAt,
-  };
-
-  await Conversation.updateOne(
-    { _id: conversation._id },
-    { $set: { lastMessage }, $currentDate: { updatedAt: true } },
-  );
-
-  const io = req.app.get('io');
-  if (io) {
-    io.to(`user:${userId}`).emit('message:new', {
-      conversationId: conversation._id,
-      message,
-    });
-    io.to(`user:${ucut.userId}`).emit('message:new', {
-      conversationId: conversation._id,
-      message,
-    });
+  if (!mongoose.isValidObjectId(userId)) {
+    return res.status(400).json({ error: 'Invalid user id.' });
   }
 
-  return res.status(201).json({ comment });
+  const ucuts = await Ucut.find({
+    userId,
+    ...activeUcutFilter(),
+  })
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .lean();
+
+  if (!ucuts.length) {
+    return res.status(200).json({ ucuts: [] });
+  }
+
+  const ucutIds = ucuts.map((ucut) => ucut._id);
+  const [users, profiles, likeCounts, commentCounts, viewerLikes] = await Promise.all([
+    User.find({ _id: userId }).select('name').lean(),
+    Profile.find({ userId }).select('userId displayName username profileImageUrl').lean(),
+    UcutLike.aggregate([
+      { $match: { ucutId: { $in: ucutIds } } },
+      { $group: { _id: '$ucutId', count: { $sum: 1 } } },
+    ]),
+    UcutComment.aggregate([
+      { $match: { ucutId: { $in: ucutIds } } },
+      { $group: { _id: '$ucutId', count: { $sum: 1 } } },
+    ]),
+    UcutLike.find({ ucutId: { $in: ucutIds }, userId: viewerId })
+      .select('ucutId')
+      .lean(),
+  ]);
+
+  const user = users[0];
+  const profile = profiles[0];
+  const likeById = new Map(likeCounts.map((item) => [item._id.toString(), item.count]));
+  const commentById = new Map(commentCounts.map((item) => [item._id.toString(), item.count]));
+  const viewerLikeSet = new Set(viewerLikes.map((entry) => entry.ucutId.toString()));
+
+  const owner = {
+    id: userId,
+    name: profile?.displayName || profile?.username || user?.name || 'Unknown',
+    username: profile?.username || '',
+    profileImageUrl: profile?.profileImageUrl || null,
+  };
+
+  const enriched = ucuts.map((ucut) => ({
+    ...ucut,
+    likeCount: likeById.get(ucut._id.toString()) || 0,
+    commentCount: commentById.get(ucut._id.toString()) || 0,
+    viewerHasLiked: viewerLikeSet.has(ucut._id.toString()),
+    canComment: userId !== viewerId.toString(),
+    owner,
+  }));
+
+  return res.status(200).json({ ucuts: enriched });
 }
 
 async function deleteUcut(req, res) {
@@ -467,6 +452,7 @@ module.exports = {
   createUcut,
   listMyUcuts,
   listFeed,
+  listUserUcuts,
   likeUcut,
   unlikeUcut,
   listComments,

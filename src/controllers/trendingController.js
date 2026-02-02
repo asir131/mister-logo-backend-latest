@@ -17,12 +17,15 @@ async function getTrending(req, res) {
   const limitTop = parsePaging(req.query.topLimit, 16, 16);
   const limitManual = parsePaging(req.query.manualLimit, 16, 16);
   const limitOrganic = parsePaging(req.query.organicLimit, 64, 100);
+  const limitItems = parsePaging(req.query.itemsLimit, limitOrganic, 200);
   const topPage = parsePaging(req.query.topPage, 1, 100);
   const manualPage = parsePaging(req.query.manualPage, 1, 100);
   const organicPage = parsePaging(req.query.organicPage, 1, 100);
+  const itemsPage = parsePaging(req.query.itemsPage, 1, 100);
   const topSkip = (topPage - 1) * limitTop;
   const manualSkip = (manualPage - 1) * limitManual;
   const organicSkip = (organicPage - 1) * limitOrganic;
+  const itemsSkip = (itemsPage - 1) * limitItems;
 
   const activeUblasts = await UBlast.find({
     status: "released",
@@ -148,7 +151,7 @@ async function getTrending(req, res) {
       : {}),
   };
 
-  const organicPipeline = [
+  const baseOrganicPipeline = [
     { $match: organicMatch },
     {
       $lookup: {
@@ -207,6 +210,7 @@ async function getTrending(req, res) {
         saveCount: {
           $ifNull: [{ $arrayElemAt: ["$savedCounts.count", 0] }, 0],
         },
+        viewCount: { $ifNull: ["$viewCount", 0] },
       },
     },
     {
@@ -221,6 +225,7 @@ async function getTrending(req, res) {
                 { $multiply: ["$likeCount", 3] },
                 { $multiply: ["$commentCount", 2] },
                 { $multiply: ["$saveCount", 4] },
+                { $multiply: ["$viewCount", 0.2] },
               ],
             },
             { $pow: [{ $add: ["$ageHours", 2] }, 1.5] },
@@ -229,6 +234,10 @@ async function getTrending(req, res) {
       },
     },
     { $sort: { engagementScore: -1, createdAt: -1 } },
+  ];
+
+  const organicPipeline = [
+    ...baseOrganicPipeline,
     { $skip: organicSkip },
     { $limit: limitOrganic },
     {
@@ -242,6 +251,27 @@ async function getTrending(req, res) {
         likeCount: 1,
         commentCount: 1,
         saveCount: 1,
+        viewCount: 1,
+      },
+    },
+  ];
+
+  const itemsOrganicPipeline = [
+    ...baseOrganicPipeline,
+    { $skip: itemsSkip },
+    { $limit: limitItems },
+    {
+      $project: {
+        description: 1,
+        mediaType: 1,
+        mediaUrl: 1,
+        createdAt: 1,
+        userId: 1,
+        engagementScore: 1,
+        likeCount: 1,
+        commentCount: 1,
+        saveCount: 1,
+        viewCount: 1,
       },
     },
   ];
@@ -266,21 +296,25 @@ async function getTrending(req, res) {
     { $count: "count" },
   ];
 
-  const [organic, organicCount] = await Promise.all([
+  const [organic, itemsOrganic, organicCount] = await Promise.all([
     Post.aggregate(organicPipeline),
+    Post.aggregate(itemsOrganicPipeline),
     Post.aggregate(organicCountPipeline),
   ]);
   const organicTotalCount = organicCount[0]?.count || 0;
 
-  const items = [
+  let items = [
     ...topPosts.map((post) => ({ type: "ublast", post })),
     ...manual.map((entry) => ({
       type: "manual",
       post: entry.post,
       position: entry.position,
     })),
-    ...organic.map((post) => ({ type: "organic", post })),
+    ...itemsOrganic.map((post) => ({ type: "organic", post })),
   ];
+  if (itemsPage > 1) {
+    items = itemsOrganic.map((post) => ({ type: "organic", post }));
+  }
 
   const meta = {
     top: {
@@ -298,6 +332,11 @@ async function getTrending(req, res) {
       totalPages: Math.max(1, Math.ceil(organicTotalCount / limitOrganic)),
       totalCount: organicTotalCount,
     },
+    items: {
+      page: itemsPage,
+      totalPages: Math.max(1, Math.ceil(organicTotalCount / limitItems)),
+      totalCount: organicTotalCount,
+    },
   };
 
   if (section) {
@@ -309,7 +348,7 @@ async function getTrending(req, res) {
       case 'organic':
         return res.status(200).json({ organic, active, meta: { organic: meta.organic } });
       case 'items':
-        return res.status(200).json({ items, active });
+        return res.status(200).json({ items, active, meta: { items: meta.items } });
       case 'active':
         return res.status(200).json({ active });
       case 'meta':

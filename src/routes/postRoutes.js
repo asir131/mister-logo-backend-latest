@@ -41,6 +41,11 @@ router.post(
     body('description').optional({ nullable: true }).trim(),
     body('shareToFacebook').optional({ nullable: true }).isBoolean().toBoolean(),
     body('shareToInstagram').optional({ nullable: true }).isBoolean().toBoolean(),
+    body('mediaUrl').optional({ nullable: true }).isURL({ require_protocol: true }),
+    body('mediaType')
+      .optional({ nullable: true })
+      .isIn(['image', 'video', 'audio'])
+      .withMessage('mediaType must be image, video, or audio'),
     body('shareTargets')
       .optional({ nullable: true })
       .custom((value) => typeof value === 'string' || Array.isArray(value)),

@@ -16,6 +16,16 @@ const emptyPost = {
   scheduledFor: "",
 };
 
+const LARGE_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+function detectMediaType(file) {
+  if (!file?.type) return null;
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
+  return null;
+}
+
 export default function FeedPage() {
   const router = useRouter();
   const [form, setForm] = useState(emptyPost);
@@ -287,13 +297,104 @@ export default function FeedPage() {
       router.push("/login");
       return;
     }
+    if (!mediaFile) {
+      setStatus({ type: "error", message: "Media file is required." });
+      return;
+    }
+
+    const mediaType = detectMediaType(mediaFile);
+    if (!mediaType) {
+      setStatus({ type: "error", message: "Unsupported media type." });
+      return;
+    }
+
+    const isLarge = mediaFile.size > LARGE_UPLOAD_BYTES;
+
+    if (isLarge) {
+      setStatus({ type: "loading", message: "Preparing large upload..." });
+      const signatureResult = await apiRequest({
+        path: "/api/uploads/signature",
+        method: "POST",
+        body: {
+          folder: "mister/posts",
+          resourceType: mediaType === "audio" ? "video" : mediaType,
+        },
+        token: auth.token,
+      });
+      if (!signatureResult.ok) {
+        setStatus({
+          type: "error",
+          message: signatureResult.data?.error || "Failed to get upload signature.",
+        });
+        return;
+      }
+
+      const { cloudName, apiKey, timestamp, signature, folder, resourceType, publicId } =
+        signatureResult.data || {};
+
+      const uploadForm = new FormData();
+      uploadForm.append("file", mediaFile);
+      uploadForm.append("api_key", apiKey);
+      uploadForm.append("timestamp", String(timestamp));
+      uploadForm.append("signature", signature);
+      if (folder) uploadForm.append("folder", folder);
+      if (publicId) uploadForm.append("public_id", publicId);
+
+      setStatus({ type: "loading", message: "Uploading large media..." });
+      const uploadRes = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
+        {
+          method: "POST",
+          body: uploadForm,
+        },
+      );
+      const uploadData = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok) {
+        setStatus({
+          type: "error",
+          message: uploadData?.error?.message || "Cloudinary upload failed.",
+        });
+        return;
+      }
+
+      const formData = {
+        description: form.description || "",
+        shareTargets: form.shareTargets || [],
+        scheduledFor: form.scheduledFor || "",
+        mediaUrl: uploadData.secure_url || uploadData.url,
+        mediaType,
+      };
+      setStatus({ type: "loading", message: "Creating post..." });
+      const result = await apiRequest({
+        path: "/api/posts",
+        method: "POST",
+        body: formData,
+        token: auth.token,
+      });
+      if (!result.ok) {
+        setStatus({
+          type: "error",
+          message: result.data?.error || "Post creation failed.",
+        });
+        return;
+      }
+      setStatus({
+        type: "success",
+        message: result.data?.message || "Post created successfully.",
+      });
+      setForm(emptyPost);
+      setMediaFile(null);
+      loadFeed(1, true);
+      return;
+    }
+
     const formData = new FormData();
     if (form.description) formData.append("description", form.description);
     if (form.shareTargets?.length) {
       formData.append("shareTargets", JSON.stringify(form.shareTargets));
     }
     if (form.scheduledFor) formData.append("scheduledFor", form.scheduledFor);
-    if (mediaFile) formData.append("media", mediaFile);
+    formData.append("media", mediaFile);
     setStatus({ type: "loading", message: "Creating post..." });
     const result = await apiRequest({
       path: "/api/posts",

@@ -57,6 +57,7 @@ const postSchema = new mongoose.Schema(
       facebook: { type: Number, default: 0 },
     },
     latePostId: { type: String, index: true },
+    viewCount: { type: Number, default: 0 },
   },
   { timestamps: true },
 );

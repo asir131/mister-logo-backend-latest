@@ -3,9 +3,11 @@ const { validationResult } = require('express-validator');
 
 const UBlast = require('../models/UBlast');
 const UBlastSubmission = require('../models/UBlastSubmission');
-const User = require('../models/User');
 const TrendingPlacement = require('../models/TrendingPlacement');
 const Post = require('../models/Post');
+const Like = require('../models/Like');
+const Comment = require('../models/Comment');
+const User = require('../models/User');
 const { uploadMediaBuffer } = require('../services/cloudinary');
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -101,6 +103,117 @@ async function listUblasts(req, res) {
     .limit(100)
     .lean();
   return res.status(200).json({ ublasts });
+}
+
+function parsePaging(value, fallback, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  if (max) return Math.min(parsed, max);
+  return parsed;
+}
+
+async function listOfficialUblasts(req, res) {
+  const page = parsePaging(req.query.page, 1);
+  const limit = parsePaging(req.query.limit, 20, 100);
+  const skip = (page - 1) * limit;
+
+  const [totalCount, ublasts] = await Promise.all([
+    UBlast.countDocuments(),
+    UBlast.find()
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+  ]);
+
+  const creatorIds = Array.from(
+    new Set(ublasts.map((ublast) => ublast.createdBy).filter(Boolean)),
+  );
+  const creators = creatorIds.length
+    ? await User.find({ _id: { $in: creatorIds } }).select('name').lean()
+    : [];
+  const creatorById = new Map(creators.map((user) => [user._id.toString(), user]));
+
+  const now = Date.now();
+  const mapped = ublasts.map((ublast) => {
+    const creator = ublast.createdBy
+      ? creatorById.get(ublast.createdBy.toString())
+      : null;
+    const isActive =
+      ublast.status === 'released' && ublast.expiresAt && ublast.expiresAt.getTime() > now;
+    return {
+      id: ublast._id,
+      title: ublast.title,
+      content: ublast.content || '',
+      mediaType: ublast.mediaType || 'text',
+      status: isActive ? 'Active' : 'Timeout',
+      createdAt: ublast.createdAt,
+      createdBy: creator?.name || 'Admin',
+    };
+  });
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+  return res.status(200).json({
+    ublasts: mapped,
+    page,
+    totalPages,
+    totalCount,
+  });
+}
+
+async function getUblastEngagements(req, res) {
+  const { ublastId } = req.params;
+  if (!mongoose.isValidObjectId(ublastId)) {
+    return res.status(400).json({ error: 'Invalid UBlast id.' });
+  }
+
+  const page = parsePaging(req.query.page, 1);
+  const limit = parsePaging(req.query.limit, 20, 100);
+  const skip = (page - 1) * limit;
+
+  const posts = await Post.find({ ublastId })
+    .select('_id viewCount createdAt')
+    .sort({ createdAt: -1 })
+    .lean();
+  if (posts.length === 0) {
+    return res.status(200).json({
+      likes: 0,
+      views: 0,
+      comments: 0,
+      shares: 0,
+      sharedPosts: [],
+      page,
+      totalPages: 1,
+      totalCount: 0,
+    });
+  }
+
+  const postIds = posts.map((post) => post._id);
+  const views = posts.reduce((sum, post) => sum + (post.viewCount || 0), 0);
+
+  const [likes, comments, totalCount, pagedShares] = await Promise.all([
+    Like.countDocuments({ postId: { $in: postIds } }),
+    Comment.countDocuments({ postId: { $in: postIds } }),
+    Post.countDocuments({ _id: { $in: postIds } }),
+    Post.find({ _id: { $in: postIds } })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .select('userId createdAt')
+      .lean(),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+  return res.status(200).json({
+    likes,
+    views,
+    comments,
+    shares: totalCount,
+    sharedPosts: pagedShares,
+    page,
+    totalPages,
+    totalCount,
+  });
 }
 
 async function listSubmissions(req, res) {
@@ -363,6 +476,8 @@ module.exports = {
   createUblast,
   releaseUblast,
   listUblasts,
+  listOfficialUblasts,
+  getUblastEngagements,
   listSubmissions,
   reviewSubmission,
   listManualPlacements,

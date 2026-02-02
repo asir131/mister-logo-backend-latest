@@ -16,8 +16,9 @@ function isBlockedUntil(dateValue) {
 }
 
 function buildStatus(user) {
-  if (user.isBanned) return 'Restricted';
-  if (user.isBlocked) return 'Blocked';
+  const blockedUntil = user?.ublastBlockedUntil;
+  if (user?.ublastManualBlocked) return 'Blocked';
+  if (blockedUntil && new Date(blockedUntil).getTime() > Date.now()) return 'Blocked';
   return 'Active';
 }
 

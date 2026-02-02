@@ -162,11 +162,24 @@ async function createPost(req, res) {
     }
   }
 
-  if (!req.file) {
-    return res.status(400).json({ error: 'Media file is required.' });
+  const hasFile = Boolean(req.file);
+  const mediaUrl = req.body.mediaUrl;
+  const mediaType = hasFile ? detectMediaType(req.file.mimetype) : req.body.mediaType;
+
+  if (!hasFile && (!mediaUrl || !mediaType)) {
+    return res.status(400).json({ error: 'Media file or mediaUrl+mediaType is required.' });
   }
 
-  const mediaType = detectMediaType(req.file.mimetype);
+  if (hasFile && !mediaType) {
+    return res.status(400).json({ error: 'Unsupported media type.' });
+  }
+
+  if (!hasFile && !['image', 'video', 'audio'].includes(mediaType)) {
+    return res.status(400).json({ error: 'Unsupported media type.' });
+  }
+
+  let resolvedMediaUrl = mediaUrl;
+
   if (!mediaType) {
     return res.status(400).json({ error: 'Unsupported media type.' });
   }
@@ -181,15 +194,21 @@ async function createPost(req, res) {
   const user = await User.findById(userId).select('lateAccountId').lean();
 
   try {
-    console.log('Post upload:', {
-      mimetype: req.file.mimetype,
-      mediaType,
-      resourceType: resolveUploadResourceType(mediaType),
-    });
-    const uploadResult = await uploadMediaBuffer(req.file.buffer, {
-      folder: 'mister/posts',
-      resource_type: resolveUploadResourceType(mediaType),
-    });
+    if (hasFile) {
+      console.log('Post upload:', {
+        mimetype: req.file.mimetype,
+        mediaType,
+        resourceType: resolveUploadResourceType(mediaType),
+      });
+    }
+    let uploadResult;
+    if (hasFile) {
+      uploadResult = await uploadMediaBuffer(req.file.buffer, {
+        folder: 'mister/posts',
+        resource_type: resolveUploadResourceType(mediaType),
+      });
+      resolvedMediaUrl = uploadResult.secure_url || uploadResult.url;
+    }
 
     const isScheduled = Boolean(scheduledForInput);
     const shareStatus = isScheduled
@@ -207,10 +226,10 @@ async function createPost(req, res) {
       userId,
       description,
       mediaType,
-      mediaUrl: uploadResult.secure_url || uploadResult.url,
-      mediaPublicId: uploadResult.public_id,
-      mimeType: req.file.mimetype,
-      size: req.file.size,
+      mediaUrl: resolvedMediaUrl,
+      mediaPublicId: hasFile ? uploadResult.public_id : undefined,
+      mimeType: hasFile ? req.file.mimetype : undefined,
+      size: hasFile ? req.file.size : undefined,
       shareToFacebook,
       shareToInstagram,
       shareTargets,
@@ -867,6 +886,7 @@ async function listMyPosts(req, res) {
           createdAt: 1,
           status: 1,
           isShared: 1,
+          viewCount: 1,
           likeCount: 1,
           commentCount: 1,
           viewerHasLiked: 1,

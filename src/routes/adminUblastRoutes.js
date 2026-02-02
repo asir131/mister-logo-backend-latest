@@ -7,6 +7,8 @@ const {
   createUblast,
   releaseUblast,
   listUblasts,
+  listOfficialUblasts,
+  getUblastEngagements,
   listSubmissions,
   reviewSubmission,
   listManualPlacements,
@@ -19,6 +21,7 @@ const {
   restrictUser,
   unrestrictUser,
 } = require('../controllers/adminUserController');
+const { listUserPosts } = require('../controllers/adminPostController');
 const { getTrending } = require('../controllers/trendingController');
 
 const upload = multer({
@@ -31,6 +34,8 @@ const router = express.Router();
 router.use(requireAdmin);
 
 router.get('/ublasts', listUblasts);
+router.get('/official-posts', listOfficialUblasts);
+router.get('/official-posts/:ublastId/engagements', getUblastEngagements);
 router.post(
   '/ublasts',
   upload.single('media'),
@@ -77,5 +82,6 @@ router.delete('/trending/manual/:placementId', deleteManualPlacement);
 router.get('/users', listUsers);
 router.patch('/users/:userId/restrict', restrictUser);
 router.patch('/users/:userId/unrestrict', unrestrictUser);
+router.get('/posts', listUserPosts);
 
 module.exports = router;

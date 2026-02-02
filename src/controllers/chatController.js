@@ -57,15 +57,29 @@ async function getChatList(req, res) {
   const userId = req.user.id;
   const mutualIds = await getMutualFollowIds(userId);
 
-  if (mutualIds.length === 0) {
+  const conversations = await Conversation.find({
+    participants: new mongoose.Types.ObjectId(userId),
+  }).lean();
+
+  const convoByKey = new Map(conversations.map((conv) => [conv.pairKey, conv]));
+  const convoIds = conversations.map((conv) => conv._id);
+  const convoOtherIds = conversations
+    .map((conv) =>
+      conv.participants.find((id) => id.toString() !== userId.toString()),
+    )
+    .filter(Boolean)
+    .map((id) => id.toString());
+
+  const allIds = Array.from(new Set([...mutualIds, ...convoOtherIds]));
+  if (allIds.length === 0) {
     return res.status(200).json({ chats: [] });
   }
 
   const [users, profiles] = await Promise.all([
-    User.find({ _id: { $in: mutualIds } })
+    User.find({ _id: { $in: allIds } })
       .select('name')
       .lean(),
-    Profile.find({ userId: { $in: mutualIds } })
+    Profile.find({ userId: { $in: allIds } })
       .select('userId displayName username profileImageUrl')
       .lean(),
   ]);
@@ -75,11 +89,6 @@ async function getChatList(req, res) {
     profiles.map((profile) => [profile.userId.toString(), profile]),
   );
 
-  const pairKeys = mutualIds.map((id) => makePairKey(userId, id));
-  const conversations = await Conversation.find({ pairKey: { $in: pairKeys } }).lean();
-  const convoByKey = new Map(conversations.map((conv) => [conv.pairKey, conv]));
-
-  const convoIds = conversations.map((conv) => conv._id);
   const unreadCounts = convoIds.length
     ? await Message.aggregate([
         {
@@ -97,7 +106,7 @@ async function getChatList(req, res) {
     unreadCounts.map((item) => [item._id.toString(), item.count]),
   );
 
-  const chats = mutualIds.map((otherId) => {
+  const chats = allIds.map((otherId) => {
     const user = userById.get(otherId);
     const profile = profileByUserId.get(otherId);
     const convo = convoByKey.get(makePairKey(userId, otherId));
@@ -147,10 +156,6 @@ async function getConversation(req, res) {
     return res.status(404).json({ error: 'User not found.' });
   }
 
-  if (!mutual) {
-    return res.status(403).json({ error: 'Chat available only for mutual follows.' });
-  }
-
   const profile = await Profile.findOne({ userId: otherUserId })
     .select('userId displayName username profileImageUrl')
     .lean();
@@ -159,6 +164,9 @@ async function getConversation(req, res) {
   const conversation = await Conversation.findOne({ pairKey }).lean();
 
   if (!conversation) {
+    if (!mutual) {
+      return res.status(403).json({ error: 'Chat available only for mutual follows.' });
+    }
     return res.status(200).json({
       conversationId: null,
       participant: {
@@ -237,17 +245,12 @@ async function sendMessage(req, res) {
     return res.status(400).json({ error: 'Message text or file is required.' });
   }
 
-  const [otherUser, mutual] = await Promise.all([
+  const [otherUser] = await Promise.all([
     User.findById(otherUserId).select('name').lean(),
-    ensureMutualFollow(userId, otherUserId),
   ]);
 
   if (!otherUser) {
     return res.status(404).json({ error: 'User not found.' });
-  }
-
-  if (!mutual) {
-    return res.status(403).json({ error: 'Chat available only for mutual follows.' });
   }
 
   const pairKey = makePairKey(userId, otherUserId);
@@ -328,14 +331,13 @@ async function markConversationRead(req, res) {
     return res.status(400).json({ error: 'Invalid user id.' });
   }
 
-  const mutual = await ensureMutualFollow(userId, otherUserId);
-  if (!mutual) {
-    return res.status(403).json({ error: 'Chat available only for mutual follows.' });
-  }
-
   const pairKey = makePairKey(userId, otherUserId);
   const conversation = await Conversation.findOne({ pairKey }).lean();
   if (!conversation) {
+    const mutual = await ensureMutualFollow(userId, otherUserId);
+    if (!mutual) {
+      return res.status(403).json({ error: 'Chat available only for mutual follows.' });
+    }
     return res.status(200).json({ updated: 0 });
   }
 

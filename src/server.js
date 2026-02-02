@@ -29,6 +29,8 @@ const shareRoutes = require("./routes/shareRoutes");
 const accountsRoutes = require("./routes/accountsRoutes");
 const webhooksRoutes = require("./routes/webhooksRoutes");
 const ucutRoutes = require("./routes/ucutRoutes");
+const viewRoutes = require("./routes/viewRoutes");
+const uploadRoutes = require("./routes/uploadRoutes");
 const { startUblastJobs } = require("./jobs/ublastScheduler");
 const { startPostScheduler } = require("./jobs/postScheduler");
 
@@ -71,6 +73,8 @@ app.use("/api/ublasts", ublastRoutes);
 app.use("/api/share", shareRoutes);
 app.use("/api/accounts", accountsRoutes);
 app.use("/api/ucuts", ucutRoutes);
+app.use("/api/views", viewRoutes);
+app.use("/api/uploads", uploadRoutes);
 app.use("/api/admin/auth", adminAuthRoutes);
 app.use("/api/admin", adminUblastRoutes);
 app.use("/webhooks", webhooksRoutes);

@@ -5,6 +5,7 @@ export default function UserProfileHeader({
   mediaCounts,
   viewerIsFollowing,
   onToggleFollow,
+  onMessage,
   isSelf,
 }) {
   const name = profile?.displayName || user?.name || "User";
@@ -30,9 +31,16 @@ export default function UserProfileHeader({
           {profile?.bio && <p className="muted">{profile.bio}</p>}
         </div>
         {!isSelf && (
-          <button className="btn ghost" type="button" onClick={onToggleFollow}>
-            {viewerIsFollowing ? "Unfollow" : "Follow"}
-          </button>
+          <div className="actions">
+            <button className="btn ghost" type="button" onClick={onToggleFollow}>
+              {viewerIsFollowing ? "Unfollow" : "Follow"}
+            </button>
+            {onMessage && (
+              <button className="btn secondary" type="button" onClick={onMessage}>
+                Message
+              </button>
+            )}
+          </div>
         )}
       </div>
       <div className="stat-grid">
