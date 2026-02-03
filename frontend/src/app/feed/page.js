@@ -9,6 +9,7 @@ import PostCard from "../../components/feed/PostCard";
 import { apiRequest } from "../../lib/apiClient";
 import { clearAuth, getAuth, getProfile } from "../../lib/authStore";
 import { openFacebookShare, openInstagramShare } from "../../lib/shareDialogs";
+import { useTranslations } from "../../lib/useTranslations";
 
 const emptyPost = {
   description: "",
@@ -48,6 +49,27 @@ export default function FeedPage() {
   const [commentText, setCommentText] = useState("");
   const [commentLoading, setCommentLoading] = useState(false);
   const auth = getAuth();
+  const labels = [
+    "Stories",
+    "Loading stories...",
+    "No stories yet.",
+    "Close",
+    "Prev",
+    "Next",
+    "Like",
+    "Unlike",
+    "Delete",
+    "comments",
+    "Write a comment...",
+    "Send",
+    "Comments are available only for mutual follows.",
+    "Feed error",
+    "Loading feed",
+    "Fetching more posts...",
+    "Load more posts",
+    "Status",
+  ];
+  const { t } = useTranslations(labels);
 
   useEffect(() => {
     if (!auth.token) {
@@ -589,10 +611,10 @@ export default function FeedPage() {
       }
     >
       <section className="card">
-        <h2>Stories</h2>
+        <h2>{t("Stories")}</h2>
         {ucutError && <p className="error">{ucutError}</p>}
-        {ucutLoading && <p>Loading stories...</p>}
-        {!ucutLoading && ucuts.length === 0 && <p>No stories yet.</p>}
+        {ucutLoading && <p>{t("Loading stories...")}</p>}
+        {!ucutLoading && ucuts.length === 0 && <p>{t("No stories yet.")}</p>}
         {stories.length > 0 && (
           <div className="story-strip">
             {stories.map((story) => {
@@ -659,7 +681,7 @@ export default function FeedPage() {
       />
       {feedError && (
         <section className="card">
-          <h2>Feed error</h2>
+          <h2>{t("Feed error")}</h2>
           <p className="error">{feedError}</p>
         </section>
       )}
@@ -681,20 +703,20 @@ export default function FeedPage() {
       ))}
       {feedLoading && (
         <section className="card">
-          <h2>Loading feed</h2>
-          <p>Fetching more posts...</p>
+          <h2>{t("Loading feed")}</h2>
+          <p>{t("Fetching more posts...")}</p>
         </section>
       )}
       {feedPage < feedTotalPages && !feedLoading && (
         <section className="card">
           <button className="btn" type="button" onClick={() => loadFeed(feedPage + 1)}>
-            Load more posts
+            {t("Load more posts")}
           </button>
         </section>
       )}
       {status && (
         <section className="card">
-          <h2>Status</h2>
+          <h2>{t("Status")}</h2>
           <p className={status.type === "error" ? "error" : ""}>
             {status.message}
           </p>
@@ -717,12 +739,12 @@ export default function FeedPage() {
                 </div>
               </div>
               <button className="btn ghost" type="button" onClick={closeStory}>
-                Close
+                {t("Close")}
               </button>
             </div>
             <div className="story-modal-body">
               <button className="story-nav" type="button" onClick={goPrevSegment}>
-                Prev
+                {t("Prev")}
               </button>
               <div className="story-stage">
                 {activeStorySegments[activeSegmentIndex]?.kind === "image" && (
@@ -752,20 +774,20 @@ export default function FeedPage() {
                 )}
               </div>
               <button className="story-nav" type="button" onClick={goNextSegment}>
-                Next
+                {t("Next")}
               </button>
             </div>
             <div className="story-modal-actions">
               <button className="btn ghost" type="button" onClick={handleToggleUcutLike}>
-                {activeUcut.viewerHasLiked ? "Unlike" : "Like"} ({activeUcut.likeCount || 0})
+                {activeUcut.viewerHasLiked ? t("Unlike") : t("Like")} ({activeUcut.likeCount || 0})
               </button>
               <span className="muted">
-                {activeUcut.commentCount || 0} comments
+                {activeUcut.commentCount || 0} {t("comments")}
               </span>
               {activeOwner?.id &&
                 (activeOwner.id === auth.user?.id || activeOwner.id === auth.user?._id) && (
                   <button className="btn secondary" type="button" onClick={handleDeleteUcut}>
-                    Delete
+                    {t("Delete")}
                   </button>
                 )}
             </div>
@@ -776,7 +798,7 @@ export default function FeedPage() {
                     <input
                       value={commentText}
                       onChange={(event) => setCommentText(event.target.value)}
-                      placeholder="Write a comment..."
+                      placeholder={t("Write a comment...")}
                     />
                     <button
                       className="btn"
@@ -784,7 +806,7 @@ export default function FeedPage() {
                       onClick={handleAddUcutComment}
                       disabled={commentLoading}
                     >
-                      Send
+                      {t("Send")}
                     </button>
                   </div>
                   <div className="comments">
@@ -801,7 +823,7 @@ export default function FeedPage() {
                 </>
               ) : (
                 <p className="muted">
-                  Comments are available only for mutual follows.
+                  {t("Comments are available only for mutual follows.")}
                 </p>
               )}
             </div>

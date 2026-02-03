@@ -9,6 +9,7 @@ import UserProfileHeader from "../../components/profile/UserProfileHeader";
 import UserPostSection from "../../components/profile/UserPostSection";
 import { apiRequest } from "../../lib/apiClient";
 import { clearAuth, getAuth, setProfile } from "../../lib/authStore";
+import { useTranslations } from "../../lib/useTranslations";
 
 const emptyProfile = {
   username: "",
@@ -20,6 +21,8 @@ const emptyProfile = {
   youtubeUrl: "",
   facebookUrl: "",
   spotifyArtistUrl: "",
+  autoTranslateEnabled: true,
+  preferredLanguage: "auto",
 };
 
 export default function ProfilePage() {
@@ -43,6 +46,46 @@ export default function ProfilePage() {
   const [activeOwnerIndex, setActiveOwnerIndex] = useState(0);
   const [activeStoryIndex, setActiveStoryIndex] = useState(0);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
+  const labels = [
+    "Language settings",
+    "Auto-translate app content",
+    "Language",
+    "Save",
+    "UCuts",
+    "Loading UCuts...",
+    "No UCuts yet.",
+    "Close",
+    "Prev",
+    "Next",
+    "Like",
+    "Unlike",
+    "comments",
+    "Write a comment...",
+    "Send",
+  ];
+  const { t } = useTranslations(labels);
+  const languages = [
+    { value: "auto", label: "Auto (device)" },
+    { value: "EN-US", label: "English (US)" },
+    { value: "EN-GB", label: "English (UK)" },
+    { value: "ES", label: "Spanish" },
+    { value: "FR", label: "French" },
+    { value: "DE", label: "German" },
+    { value: "IT", label: "Italian" },
+    { value: "PT-BR", label: "Portuguese (BR)" },
+    { value: "PT-PT", label: "Portuguese (PT)" },
+    { value: "RU", label: "Russian" },
+    { value: "AR", label: "Arabic" },
+    { value: "JA", label: "Japanese" },
+    { value: "KO", label: "Korean" },
+    { value: "ZH", label: "Chinese" },
+    { value: "ID", label: "Indonesian" },
+    { value: "TR", label: "Turkish" },
+    { value: "NL", label: "Dutch" },
+    { value: "PL", label: "Polish" },
+    { value: "SV", label: "Swedish" },
+    { value: "FI", label: "Finnish" },
+  ];
 
   useEffect(() => {
     const auth = getAuth();
@@ -64,7 +107,16 @@ export default function ProfilePage() {
     if (result.ok) {
       setProfile(result.data.profile);
       setProfileState(result.data.profile);
-      setForm({ ...emptyProfile, ...result.data.profile });
+      setForm({
+        ...emptyProfile,
+        ...result.data.profile,
+        autoTranslateEnabled:
+          result.data.profile?.autoTranslateEnabled !== undefined
+            ? result.data.profile.autoTranslateEnabled
+            : true,
+        preferredLanguage:
+          result.data.profile?.preferredLanguage || "auto",
+      });
       const profileData = result.data.profile || {};
       setOverview({
         user: user || {},
@@ -131,7 +183,8 @@ export default function ProfilePage() {
     }
     const formData = new FormData();
     Object.entries(form).forEach(([key, value]) => {
-      if (value) formData.append(key, value);
+      if (value === undefined || value === null || value === "") return;
+      formData.append(key, value);
     });
     if (imageFile) formData.append("profileImage", imageFile);
     setStatus({ type: "loading", message: "Updating profile..." });
@@ -150,6 +203,7 @@ export default function ProfilePage() {
     }
     setProfile(result.data.profile);
     setProfileState(result.data.profile);
+    setProfile(result.data.profile);
     setStatus({ type: "success", message: "Profile updated." });
   }
 
@@ -366,6 +420,46 @@ export default function ProfilePage() {
         </>
       }
     >
+      <section className="card">
+        <h2>{t("Language settings")}</h2>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            name="autoTranslateEnabled"
+            checked={Boolean(form.autoTranslateEnabled)}
+            onChange={(event) => {
+              const { name, type, checked, value } = event.target;
+              setForm((prev) => ({
+                ...prev,
+                [name]: type === "checkbox" ? checked : value,
+              }));
+            }}
+          />
+          {t("Auto-translate app content")}
+        </label>
+        <label className="toggle">
+          {t("Language")}
+          <select
+            name="preferredLanguage"
+            value={form.preferredLanguage || "auto"}
+            onChange={(event) => {
+              const { name, value } = event.target;
+              setForm((prev) => ({ ...prev, [name]: value }));
+            }}
+          >
+            {languages.map((lang) => (
+              <option key={lang.value} value={lang.value}>
+                {lang.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="actions">
+          <button className="btn" type="button" onClick={handleUpdate}>
+            {t("Save")}
+          </button>
+        </div>
+      </section>
       {overview && (
         <UserProfileHeader
           user={user}
@@ -377,6 +471,18 @@ export default function ProfilePage() {
           isSelf
         />
       )}
+      <UpdateProfileForm
+        form={form}
+        onChange={(event) => {
+          const { name, type, checked, value } = event.target;
+          setForm((prev) => ({
+            ...prev,
+            [name]: type === "checkbox" ? checked : value,
+          }));
+        }}
+        onFileChange={(event) => setImageFile(event.target.files?.[0] || null)}
+        onSubmit={handleUpdate}
+      />
       <UserPostSection
         title="Image posts"
         posts={sections.image.items}
@@ -399,9 +505,9 @@ export default function ProfilePage() {
         onLoadMore={() => {}}
       />
       <section className="card">
-        <h2>UCuts</h2>
-        {ucutLoading && <p>Loading UCuts...</p>}
-        {!ucutLoading && ucuts.length === 0 && <p>No UCuts yet.</p>}
+        <h2>{t("UCuts")}</h2>
+        {ucutLoading && <p>{t("Loading UCuts...")}</p>}
+        {!ucutLoading && ucuts.length === 0 && <p>{t("No UCuts yet.")}</p>}
         {stories.length > 0 && (
           <div className="story-strip">
             {stories.map((story) => {
@@ -459,12 +565,12 @@ export default function ProfilePage() {
                 </div>
               </div>
               <button className="btn ghost" type="button" onClick={closeStory}>
-                Close
+                {t("Close")}
               </button>
             </div>
             <div className="story-modal-body">
               <button className="story-nav" type="button" onClick={goPrevSegment}>
-                Prev
+                {t("Prev")}
               </button>
               <div className="story-stage">
                 {activeStorySegments[activeSegmentIndex]?.kind === "image" && (
@@ -494,7 +600,7 @@ export default function ProfilePage() {
                 )}
               </div>
               <button className="story-nav" type="button" onClick={goNextSegment}>
-                Next
+                {t("Next")}
               </button>
             </div>
             <div className="story-modal-actions">
@@ -504,10 +610,10 @@ export default function ProfilePage() {
                 onClick={() => handleToggleUcutLike(activeSegmentUcut)}
                 disabled={activeOwner?.id === user?.id || activeOwner?.id === user?._id}
               >
-                {activeSegmentUcut?.viewerHasLiked ? "Unlike" : "Like"} ({activeSegmentUcut?.likeCount || 0})
+                {activeSegmentUcut?.viewerHasLiked ? t("Unlike") : t("Like")} ({activeSegmentUcut?.likeCount || 0})
               </button>
               <span className="muted">
-                {activeSegmentUcut?.commentCount || 0} comments
+                {activeSegmentUcut?.commentCount || 0} {t("comments")}
               </span>
             </div>
             <div className="story-modal-comments">
@@ -521,14 +627,14 @@ export default function ProfilePage() {
                         [activeSegmentUcut?._id]: event.target.value,
                       }))
                     }
-                    placeholder="Write a comment..."
+                    placeholder={t("Write a comment...")}
                   />
                   <button
                     className="btn"
                     type="button"
                     onClick={() => handleAddUcutComment(activeSegmentUcut)}
                   >
-                    Send
+                    {t("Send")}
                   </button>
                 </div>
               )}
@@ -549,14 +655,6 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
-      <UpdateProfileForm
-        form={form}
-        onChange={(event) =>
-          setForm((prev) => ({ ...prev, [event.target.name]: event.target.value }))
-        }
-        onFileChange={(event) => setImageFile(event.target.files?.[0] || null)}
-        onSubmit={handleUpdate}
-      />
       {status && (
         <section className="card">
           <h2>Status</h2>

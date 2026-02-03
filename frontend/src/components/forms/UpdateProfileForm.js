@@ -1,46 +1,63 @@
+import { useTranslations } from "../../lib/useTranslations";
+
 export default function UpdateProfileForm({
   form,
   onChange,
   onFileChange,
   onSubmit,
 }) {
+  const labels = [
+    "Update profile",
+    "Edit profile details or replace the image.",
+    "Username",
+    "Display name",
+    "Role",
+    "Bio",
+    "Instagram URL",
+    "TikTok URL",
+    "YouTube URL",
+    "Facebook URL",
+    "Spotify URL",
+  ];
+  const { t } = useTranslations(labels);
+
   return (
     <section className="card">
-      <h2>Update profile</h2>
-      <p>Edit profile details or replace the image.</p>
+      <h2>{t("Update profile")}</h2>
+      <p>{t("Edit profile details or replace the image.")}</p>
       <div className="row">
         <input
           name="username"
           value={form.username}
           onChange={onChange}
-          placeholder="Username"
+          placeholder={t("Username")}
         />
         <input
           name="displayName"
           value={form.displayName}
           onChange={onChange}
-          placeholder="Display name"
+          placeholder={t("Display name")}
         />
         <input
           name="role"
           value={form.role}
           onChange={onChange}
-          placeholder="Role"
+          placeholder={t("Role")}
         />
       </div>
-      <textarea name="bio" value={form.bio} onChange={onChange} placeholder="Bio" />
+      <textarea name="bio" value={form.bio} onChange={onChange} placeholder={t("Bio")} />
       <div className="row">
         <input
           name="instagramUrl"
           value={form.instagramUrl}
           onChange={onChange}
-          placeholder="Instagram URL"
+          placeholder={t("Instagram URL")}
         />
         <input
           name="tiktokUrl"
           value={form.tiktokUrl}
           onChange={onChange}
-          placeholder="TikTok URL"
+          placeholder={t("TikTok URL")}
         />
       </div>
       <div className="row">
@@ -48,19 +65,19 @@ export default function UpdateProfileForm({
           name="youtubeUrl"
           value={form.youtubeUrl}
           onChange={onChange}
-          placeholder="YouTube URL"
+          placeholder={t("YouTube URL")}
         />
         <input
           name="facebookUrl"
           value={form.facebookUrl}
           onChange={onChange}
-          placeholder="Facebook URL"
+          placeholder={t("Facebook URL")}
         />
         <input
           name="spotifyArtistUrl"
           value={form.spotifyArtistUrl}
           onChange={onChange}
-          placeholder="Spotify URL"
+          placeholder={t("Spotify URL")}
         />
       </div>
       <input type="file" accept="image/*" onChange={onFileChange} />

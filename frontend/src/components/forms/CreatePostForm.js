@@ -1,3 +1,5 @@
+import { useTranslations } from "../../lib/useTranslations";
+
 const PLATFORMS = [
   { key: "twitter", label: "Twitter/X", auto: true },
   { key: "tiktok", label: "TikTok", auto: true },
@@ -15,15 +17,25 @@ export default function CreatePostForm({
   onSubmit,
   onSubmitPostType,
 }) {
+  const labels = [
+    "Create post",
+    "Upload media and select where to share.",
+    "Post description",
+    "Schedule time (optional)",
+    "Create UClip",
+  ];
+  const platformLabels = PLATFORMS.map((platform) => platform.label);
+  const { t } = useTranslations([...labels, ...platformLabels]);
+
   return (
     <section className="card">
-      <h2>Create post</h2>
-      <p>Upload media and select where to share.</p>
+      <h2>{t("Create post")}</h2>
+      <p>{t("Upload media and select where to share.")}</p>
       <textarea
         name="description"
         value={form.description}
         onChange={onChange}
-        placeholder="Post description"
+        placeholder={t("Post description")}
       />
       <div className="row">
         {PLATFORMS.map((platform) => (
@@ -33,7 +45,7 @@ export default function CreatePostForm({
               checked={form.shareTargets?.includes(platform.key)}
               onChange={() => onToggleTarget(platform.key)}
             />
-            {platform.label}
+            {t(platform.label)}
           </label>
         ))}
       </div>
@@ -44,7 +56,7 @@ export default function CreatePostForm({
           value={form.scheduledFor}
           onChange={onChange}
         />
-        Schedule time (optional)
+        {t("Schedule time (optional)")}
       </label>
       <input type="file" accept="image/*,video/*,audio/*" onChange={onFileChange} />
       <div className="actions">
@@ -53,14 +65,14 @@ export default function CreatePostForm({
           type="button"
           onClick={() => (onSubmitPostType ? onSubmitPostType("upost") : onSubmit())}
         >
-          Create post
+          {t("Create post")}
         </button>
         <button
           className="btn secondary"
           type="button"
           onClick={() => (onSubmitPostType ? onSubmitPostType("uclip") : onSubmit())}
         >
-          Create UClip
+          {t("Create UClip")}
         </button>
       </div>
     </section>

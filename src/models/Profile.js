@@ -13,6 +13,8 @@ const profileSchema = new mongoose.Schema(
     youtubeUrl: { type: String },
     facebookUrl: { type: String },
     spotifyArtistUrl: { type: String },
+    autoTranslateEnabled: { type: Boolean, default: true },
+    preferredLanguage: { type: String },
     postsCount: { type: Number, default: 0 },
     followersCount: { type: Number, default: 0 },
     followingCount: { type: Number, default: 0 },

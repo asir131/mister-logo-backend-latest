@@ -41,6 +41,8 @@ async function completeProfile(req, res) {
     youtubeUrl,
     facebookUrl,
     spotifyArtistUrl,
+    autoTranslateEnabled,
+    preferredLanguage,
   } = req.body;
 
   if (!req.file) {
@@ -73,6 +75,12 @@ async function completeProfile(req, res) {
       youtubeUrl,
       facebookUrl,
       spotifyArtistUrl,
+      autoTranslateEnabled:
+        autoTranslateEnabled !== undefined
+          ? autoTranslateEnabled === true || autoTranslateEnabled === 'true'
+          : true,
+      preferredLanguage:
+        preferredLanguage && preferredLanguage !== 'auto' ? preferredLanguage : undefined,
       postsCount: 0,
       followersCount: 0,
       followingCount: 0,
@@ -135,6 +143,21 @@ async function updateProfile(req, res) {
     assignIfPresent(updates, req.body, 'youtubeUrl');
     assignIfPresent(updates, req.body, 'facebookUrl');
     assignIfPresent(updates, req.body, 'spotifyArtistUrl');
+    assignIfPresent(
+      updates,
+      req.body,
+      'autoTranslateEnabled',
+      (value) => value === true || value === 'true',
+    );
+    assignIfPresent(
+      updates,
+      req.body,
+      'preferredLanguage',
+      (value) => {
+        if (!value || value === 'auto') return null;
+        return value;
+      },
+    );
 
     if (req.file) {
       updates.profileImageUrl = await uploadProfileImage(req.file, userId);

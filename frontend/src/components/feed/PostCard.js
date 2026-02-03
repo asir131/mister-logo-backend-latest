@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useTranslations } from "../../lib/useTranslations";
 
 function initials(name) {
   if (!name) return "U";
@@ -32,6 +33,26 @@ export default function PostCard({
   onAddComment,
 }) {
   const [commentText, setCommentText] = useState("");
+  const commentItems = commentsState?.items || [];
+  const labelTexts = [
+    "Like",
+    "Unlike",
+    "Share to Feed",
+    "Share to Facebook",
+    "Share to Instagram",
+    "Delete",
+    "Edit",
+    "Save",
+    "Unsave",
+    "Comments",
+    "Write a comment...",
+    "Send",
+  ];
+  const contentTexts = [
+    post?.description,
+    ...commentItems.map((comment) => comment?.text),
+  ].filter(Boolean);
+  const { t } = useTranslations([...labelTexts, ...contentTexts]);
   const media = useMemo(() => {
     if (post.mediaType === "image") {
       return <img src={post.mediaUrl} alt="post media" className="post-media" />;
@@ -90,16 +111,16 @@ export default function PostCard({
 
       <div className="post-body">
         {media}
-        {post.description && <p className="post-text">{post.description}</p>}
+        {post.description && <p className="post-text">{t(post.description)}</p>}
       </div>
 
       <div className="post-actions">
         <button className="btn ghost" type="button" onClick={() => onToggleLike(post)}>
-          {post.viewerHasLiked ? "Unlike" : "Like"} - {post.likeCount}
+          {post.viewerHasLiked ? t("Unlike") : t("Like")} - {post.likeCount}
         </button>
         {onSharePost && (
           <button className="btn ghost" type="button" onClick={() => onSharePost(post)}>
-            Share to Feed
+            {t("Share to Feed")}
           </button>
         )}
         {onShareFacebook && (
@@ -108,7 +129,7 @@ export default function PostCard({
             type="button"
             onClick={() => onShareFacebook(post)}
           >
-            Share to Facebook
+            {t("Share to Facebook")}
           </button>
         )}
         {onShareInstagram && (
@@ -117,17 +138,17 @@ export default function PostCard({
             type="button"
             onClick={() => onShareInstagram(post)}
           >
-            Share to Instagram
+            {t("Share to Instagram")}
           </button>
         )}
         {onDelete && (
           <button className="btn ghost" type="button" onClick={() => onDelete(post)}>
-            Delete
+            {t("Delete")}
           </button>
         )}
         {onEdit && (
           <button className="btn ghost" type="button" onClick={() => onEdit(post)}>
-            Edit
+            {t("Edit")}
           </button>
         )}
         {onToggleSave && (
@@ -136,11 +157,11 @@ export default function PostCard({
             type="button"
             onClick={() => onToggleSave(post)}
           >
-            {post.viewerHasSaved ? "Unsave" : "Save"}
+            {post.viewerHasSaved ? t("Unsave") : t("Save")}
           </button>
         )}
         <button className="btn ghost" type="button" onClick={() => onLoadComments(post)}>
-          Comments - {post.commentCount}
+          {t("Comments")} - {post.commentCount}
         </button>
         <span className="post-time">{formatTime(post.createdAt)}</span>
       </div>
@@ -150,7 +171,7 @@ export default function PostCard({
           name="comment"
           value={commentText}
           onChange={(event) => setCommentText(event.target.value)}
-          placeholder="Write a comment..."
+          placeholder={t("Write a comment...")}
         />
         <button
           className="btn"
@@ -162,13 +183,13 @@ export default function PostCard({
             setCommentText("");
           }}
         >
-          Send
+          {t("Send")}
         </button>
       </div>
 
       {commentsState && (
         <div className="comments">
-          {commentsState.items?.map((comment) => (
+          {commentItems.map((comment) => (
             <div className="comment" key={comment._id || comment.id}>
               <div className="comment-avatar">
                 {comment.profile?.profileImageUrl ? (
@@ -184,7 +205,7 @@ export default function PostCard({
                 <div className="comment-author">
                   {comment.profile?.displayName || comment.user?.name || "User"}
                 </div>
-                <div className="comment-text">{comment.text}</div>
+                <div className="comment-text">{t(comment.text)}</div>
               </div>
             </div>
           ))}
