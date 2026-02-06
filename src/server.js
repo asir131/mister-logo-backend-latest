@@ -133,12 +133,14 @@ io.on("connection", (socket) => {
   if (socket.userId) {
     socket.join(`user:${socket.userId}`);
     addOnlineUser(socket.userId);
+    io.emit("presence:update", { userId: socket.userId, online: true });
   }
   registerChatSocket(io, socket);
 
   socket.on("disconnect", () => {
     if (socket.userId) {
       removeOnlineUser(socket.userId);
+      io.emit("presence:update", { userId: socket.userId, online: false });
     }
   });
 });

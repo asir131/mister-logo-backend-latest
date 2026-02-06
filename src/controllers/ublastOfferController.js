@@ -8,13 +8,32 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const APP_WEB_BASE_URL = process.env.APP_WEB_BASE_URL || 'http://localhost:3000';
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
 
+function parsePaging(value, fallback, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  if (max) return Math.min(parsed, max);
+  return parsed;
+}
+
 async function listMyOffers(req, res) {
   const userId = req.user.id;
-  const offers = await UblastOffer.find({ userId })
-    .sort({ createdAt: -1 })
-    .populate('ublastId', 'title content mediaUrl mediaType rewardLabel rewardType')
-    .lean();
-  return res.status(200).json({ offers });
+  const page = parsePaging(req.query.page, 1);
+  const limit = parsePaging(req.query.limit, 20, 100);
+  const skip = (page - 1) * limit;
+
+  const [totalCount, offers] = await Promise.all([
+    UblastOffer.countDocuments({ userId }),
+    UblastOffer.find({ userId })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('ublastId', 'title content mediaUrl mediaType rewardLabel rewardType')
+      .lean(),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+
+  return res.status(200).json({ offers, page, totalPages, totalCount });
 }
 
 async function createPaymentIntent(req, res) {

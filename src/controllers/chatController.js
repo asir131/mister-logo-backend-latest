@@ -5,7 +5,9 @@ const User = require('../models/User');
 const Profile = require('../models/Profile');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
+const Block = require('../models/Block');
 const { uploadMediaBuffer } = require('../services/cloudinary');
+const { getOnlineUserIds } = require('../store/onlineUsers');
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
@@ -53,9 +55,29 @@ function pickName(user, profile) {
   );
 }
 
+function getDeletedAtForUser(conversation, userId) {
+  if (!conversation?.deletedFor?.length) return null;
+  const entry = conversation.deletedFor.find(
+    (item) => item.userId?.toString() === userId.toString(),
+  );
+  return entry?.deletedAt ? new Date(entry.deletedAt) : null;
+}
+
+async function getBlockInfo(userId, otherUserId) {
+  const [blockedByMe, blockedMe] = await Promise.all([
+    Block.exists({ blockerId: userId, blockedId: otherUserId }),
+    Block.exists({ blockerId: otherUserId, blockedId: userId }),
+  ]);
+  return {
+    blockedByMe: Boolean(blockedByMe),
+    blockedMe: Boolean(blockedMe),
+  };
+}
+
 async function getChatList(req, res) {
   const userId = req.user.id;
   const mutualIds = await getMutualFollowIds(userId);
+  const onlineUserIds = getOnlineUserIds();
 
   const conversations = await Conversation.find({
     participants: new mongoose.Types.ObjectId(userId),
@@ -63,6 +85,18 @@ async function getChatList(req, res) {
 
   const convoByKey = new Map(conversations.map((conv) => [conv.pairKey, conv]));
   const convoIds = conversations.map((conv) => conv._id);
+  const deletedAtByConvoId = new Map();
+  const convoIdsWithDeleted = [];
+  const convoIdsWithoutDeleted = [];
+  conversations.forEach((conv) => {
+    const deletedAt = getDeletedAtForUser(conv, userId);
+    if (deletedAt) {
+      deletedAtByConvoId.set(conv._id.toString(), deletedAt);
+      convoIdsWithDeleted.push(conv._id);
+    } else {
+      convoIdsWithoutDeleted.push(conv._id);
+    }
+  });
   const convoOtherIds = conversations
     .map((conv) =>
       conv.participants.find((id) => id.toString() !== userId.toString()),
@@ -89,11 +123,11 @@ async function getChatList(req, res) {
     profiles.map((profile) => [profile.userId.toString(), profile]),
   );
 
-  const unreadCounts = convoIds.length
+  const unreadCounts = convoIdsWithoutDeleted.length
     ? await Message.aggregate([
         {
           $match: {
-            conversationId: { $in: convoIds },
+            conversationId: { $in: convoIdsWithoutDeleted },
             recipientId: new mongoose.Types.ObjectId(userId),
             readAt: null,
           },
@@ -105,21 +139,45 @@ async function getChatList(req, res) {
   const unreadByConvo = new Map(
     unreadCounts.map((item) => [item._id.toString(), item.count]),
   );
+  if (convoIdsWithDeleted.length) {
+    const counts = await Promise.all(
+      convoIdsWithDeleted.map(async (convoId) => {
+        const deletedAt = deletedAtByConvoId.get(convoId.toString());
+        const count = await Message.countDocuments({
+          conversationId: convoId,
+          recipientId: userId,
+          readAt: null,
+          createdAt: { $gt: deletedAt },
+        });
+        return [convoId.toString(), count];
+      }),
+    );
+    counts.forEach(([id, count]) => unreadByConvo.set(id, count));
+  }
 
   const chats = allIds.map((otherId) => {
     const user = userById.get(otherId);
     const profile = profileByUserId.get(otherId);
     const convo = convoByKey.get(makePairKey(userId, otherId));
+    const deletedAt = convo ? getDeletedAtForUser(convo, userId) : null;
+    const lastMessage =
+      convo?.lastMessage && deletedAt && convo.lastMessage.createdAt
+        ? new Date(convo.lastMessage.createdAt) > deletedAt
+          ? convo.lastMessage
+          : null
+        : convo?.lastMessage || null;
     const unreadCount = convo ? unreadByConvo.get(convo._id.toString()) || 0 : 0;
 
     return {
       userId: otherId,
       name: pickName(user, profile),
       profileImageUrl: profile?.profileImageUrl || null,
-      lastMessage: convo?.lastMessage || null,
+      lastMessage,
       unreadCount,
       conversationId: convo?._id || null,
-      lastActivityAt: convo?.updatedAt || null,
+      isOnline: onlineUserIds.has(otherId),
+      lastActivityAt:
+        lastMessage?.createdAt || deletedAt || convo?.updatedAt || null,
     };
   });
 
@@ -159,6 +217,8 @@ async function getConversation(req, res) {
   const profile = await Profile.findOne({ userId: otherUserId })
     .select('userId displayName username profileImageUrl')
     .lean();
+  const onlineUserIds = getOnlineUserIds();
+  const blockInfo = await getBlockInfo(userId, otherUserId);
 
   const pairKey = makePairKey(userId, otherUserId);
   const conversation = await Conversation.findOne({ pairKey }).lean();
@@ -173,6 +233,9 @@ async function getConversation(req, res) {
         userId: otherUserId,
         name: pickName(otherUser, profile),
         profileImageUrl: profile?.profileImageUrl || null,
+        isOnline: onlineUserIds.has(otherUserId.toString()),
+        blockedByMe: blockInfo.blockedByMe,
+        blockedMe: blockInfo.blockedMe,
       },
       messages: [],
       page: 1,
@@ -184,10 +247,15 @@ async function getConversation(req, res) {
   const page = parsePaging(req.query.page, 1);
   const limit = parsePaging(req.query.limit, 20, 50);
   const skip = (page - 1) * limit;
+  const deletedAt = getDeletedAtForUser(conversation, userId);
+  const messageFilter = {
+    conversationId: conversation._id,
+    ...(deletedAt ? { createdAt: { $gt: deletedAt } } : {}),
+  };
 
   const [totalCount, rawMessages] = await Promise.all([
-    Message.countDocuments({ conversationId: conversation._id }),
-    Message.find({ conversationId: conversation._id })
+    Message.countDocuments(messageFilter),
+    Message.find(messageFilter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -199,6 +267,7 @@ async function getConversation(req, res) {
       conversationId: conversation._id,
       recipientId: userId,
       readAt: null,
+      ...(deletedAt ? { createdAt: { $gt: deletedAt } } : {}),
     },
     { $set: { readAt: new Date() } },
   );
@@ -212,6 +281,9 @@ async function getConversation(req, res) {
       userId: otherUserId,
       name: pickName(otherUser, profile),
       profileImageUrl: profile?.profileImageUrl || null,
+      isOnline: onlineUserIds.has(otherUserId.toString()),
+      blockedByMe: blockInfo.blockedByMe,
+      blockedMe: blockInfo.blockedMe,
     },
     messages,
     page,
@@ -251,6 +323,11 @@ async function sendMessage(req, res) {
 
   if (!otherUser) {
     return res.status(404).json({ error: 'User not found.' });
+  }
+
+  const blockInfo = await getBlockInfo(userId, otherUserId);
+  if (blockInfo.blockedByMe || blockInfo.blockedMe) {
+    return res.status(403).json({ error: 'Messaging is blocked for this user.' });
   }
 
   const pairKey = makePairKey(userId, otherUserId);
@@ -341,11 +418,13 @@ async function markConversationRead(req, res) {
     return res.status(200).json({ updated: 0 });
   }
 
+  const deletedAt = getDeletedAtForUser(conversation, userId);
   const result = await Message.updateMany(
     {
       conversationId: conversation._id,
       recipientId: userId,
       readAt: null,
+      ...(deletedAt ? { createdAt: { $gt: deletedAt } } : {}),
     },
     { $set: { readAt: new Date() } },
   );
@@ -353,9 +432,87 @@ async function markConversationRead(req, res) {
   return res.status(200).json({ updated: result.modifiedCount || 0 });
 }
 
+async function clearConversation(req, res) {
+  const userId = req.user.id;
+  const { userId: otherUserId } = req.params;
+
+  if (!mongoose.isValidObjectId(otherUserId)) {
+    return res.status(400).json({ error: 'Invalid user id.' });
+  }
+
+  if (userId === otherUserId) {
+    return res.status(400).json({ error: 'Cannot chat with yourself.' });
+  }
+
+  const pairKey = makePairKey(userId, otherUserId);
+  const conversation = await Conversation.findOne({ pairKey });
+  if (!conversation) {
+    return res.status(200).json({ cleared: false });
+  }
+
+  const now = new Date();
+  const existingIndex = conversation.deletedFor?.findIndex(
+    (entry) => entry.userId?.toString() === userId.toString(),
+  );
+  if (existingIndex >= 0) {
+    conversation.deletedFor[existingIndex].deletedAt = now;
+  } else {
+    conversation.deletedFor = conversation.deletedFor || [];
+    conversation.deletedFor.push({ userId, deletedAt: now });
+  }
+
+  await conversation.save();
+  return res.status(200).json({ cleared: true, deletedAt: now });
+}
+
+async function blockUser(req, res) {
+  const userId = req.user.id;
+  const { userId: otherUserId } = req.params;
+
+  if (!mongoose.isValidObjectId(otherUserId)) {
+    return res.status(400).json({ error: 'Invalid user id.' });
+  }
+
+  if (userId === otherUserId) {
+    return res.status(400).json({ error: 'Cannot block yourself.' });
+  }
+
+  const otherUser = await User.findById(otherUserId).select('_id').lean();
+  if (!otherUser) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+
+  await Block.updateOne(
+    { blockerId: userId, blockedId: otherUserId },
+    { $setOnInsert: { blockerId: userId, blockedId: otherUserId } },
+    { upsert: true },
+  );
+
+  return res.status(200).json({ blocked: true });
+}
+
+async function unblockUser(req, res) {
+  const userId = req.user.id;
+  const { userId: otherUserId } = req.params;
+
+  if (!mongoose.isValidObjectId(otherUserId)) {
+    return res.status(400).json({ error: 'Invalid user id.' });
+  }
+
+  if (userId === otherUserId) {
+    return res.status(400).json({ error: 'Cannot unblock yourself.' });
+  }
+
+  await Block.deleteOne({ blockerId: userId, blockedId: otherUserId });
+  return res.status(200).json({ blocked: false });
+}
+
 module.exports = {
   getChatList,
   getConversation,
   sendMessage,
   markConversationRead,
+  clearConversation,
+  blockUser,
+  unblockUser,
 };

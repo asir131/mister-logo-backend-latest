@@ -6,6 +6,12 @@ const conversationSchema = new mongoose.Schema(
     participants: [
       { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     ],
+    deletedFor: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        deletedAt: { type: Date, required: true },
+      },
+    ],
     lastMessage: {
       senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       text: { type: String },

@@ -15,6 +15,8 @@ const {
   createManualPlacement,
   deleteManualPlacement,
   updateManualPlacement,
+  updateUblast,
+  deleteUblast,
 } = require('../controllers/adminUblastController');
 const {
   listUsers,
@@ -57,6 +59,8 @@ router.post(
   createUblast,
 );
 router.post('/ublasts/:ublastId/release', releaseUblast);
+router.patch('/ublasts/:ublastId', upload.single('media'), updateUblast);
+router.delete('/ublasts/:ublastId', deleteUblast);
 
 router.get('/ublasts/submissions', listSubmissions);
 router.patch(

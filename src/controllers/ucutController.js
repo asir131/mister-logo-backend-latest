@@ -168,20 +168,11 @@ async function listMyUcuts(req, res) {
 
 async function listFeed(req, res) {
   const viewerId = req.user.id;
-  const following = await Follow.find({ followerId: viewerId })
-    .select('followingId')
-    .lean();
-  const followingIds = following.map((entry) => entry.followingId);
-  const ownerIdsQuery = Array.from(
-    new Set([viewerId.toString(), ...followingIds.map((id) => id.toString())]),
-  );
-
   const page = parsePaging(req.query.page, 1);
   const limit = parsePaging(req.query.limit, 20, 100);
   const skip = (page - 1) * limit;
 
   const match = {
-    userId: { $in: ownerIdsQuery },
     ...activeUcutFilter(),
   };
 
@@ -196,15 +187,12 @@ async function listFeed(req, res) {
 
   const ucutIds = ucuts.map((ucut) => ucut._id);
   const ownerIds = Array.from(new Set(ucuts.map((ucut) => ucut.userId.toString())));
-  const [users, profiles, followBacks] = await Promise.all([
+  const [users, profiles] = await Promise.all([
     User.find({ _id: { $in: ownerIds } })
       .select('name')
       .lean(),
     Profile.find({ userId: { $in: ownerIds } })
       .select('userId displayName username profileImageUrl')
-      .lean(),
-    Follow.find({ followerId: { $in: ownerIds }, followingId: viewerId })
-      .select('followerId')
       .lean(),
   ]);
 
@@ -212,7 +200,6 @@ async function listFeed(req, res) {
   const profileById = new Map(
     profiles.map((profile) => [profile.userId.toString(), profile]),
   );
-  const followBackSet = new Set(followBacks.map((entry) => entry.followerId.toString()));
   const [likeCounts, commentCounts, viewerLikes] = await Promise.all([
     UcutLike.aggregate([
       { $match: { ucutId: { $in: ucutIds } } },
@@ -235,14 +222,13 @@ async function listFeed(req, res) {
     const ownerId = ucut.userId.toString();
     const user = userById.get(ownerId);
     const profile = profileById.get(ownerId);
-    const canComment = ownerId !== viewerId.toString();
 
     return {
       ...ucut,
       likeCount: likeById.get(ucut._id.toString()) || 0,
       commentCount: commentById.get(ucut._id.toString()) || 0,
       viewerHasLiked: viewerLikeSet.has(ucut._id.toString()),
-      canComment,
+      canComment: true,
       owner: {
         id: ownerId,
         name: profile?.displayName || profile?.username || user?.name || 'Unknown',
@@ -272,10 +258,6 @@ async function likeUcut(req, res) {
   const ucut = await Ucut.findOne({ _id: ucutId, ...activeUcutFilter() }).lean();
   if (!ucut) {
     return res.status(404).json({ error: 'UCut not found.' });
-  }
-
-  if (ucut.userId.toString() === userId.toString()) {
-    return res.status(403).json({ error: 'You cannot like your own UCut.' });
   }
 
   await UcutLike.updateOne(
@@ -352,10 +334,6 @@ async function addComment(req, res) {
     return res.status(404).json({ error: 'UCut not found.' });
   }
 
-  if (ucut.userId.toString() === userId.toString()) {
-    return res.status(403).json({ error: 'You cannot comment on your own UCut.' });
-  }
-
   const comment = await UcutComment.create({
     ucutId,
     userId,
@@ -420,7 +398,7 @@ async function listUserUcuts(req, res) {
     likeCount: likeById.get(ucut._id.toString()) || 0,
     commentCount: commentById.get(ucut._id.toString()) || 0,
     viewerHasLiked: viewerLikeSet.has(ucut._id.toString()),
-    canComment: userId !== viewerId.toString(),
+    canComment: true,
     owner,
   }));
 

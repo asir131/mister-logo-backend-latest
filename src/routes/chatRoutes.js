@@ -7,6 +7,9 @@ const {
   getConversation,
   sendMessage,
   markConversationRead,
+  clearConversation,
+  blockUser,
+  unblockUser,
 } = require('../controllers/chatController');
 
 const upload = multer({
@@ -20,5 +23,8 @@ router.get('/', authenticate, getChatList);
 router.get('/:userId/messages', authenticate, getConversation);
 router.post('/:userId/messages', authenticate, upload.single('file'), sendMessage);
 router.post('/:userId/read', authenticate, markConversationRead);
+router.post('/:userId/clear', authenticate, clearConversation);
+router.post('/:userId/block', authenticate, blockUser);
+router.post('/:userId/unblock', authenticate, unblockUser);
 
 module.exports = router;

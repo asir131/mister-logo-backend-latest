@@ -8,6 +8,7 @@ const Post = require('../models/Post');
 const Like = require('../models/Like');
 const Comment = require('../models/Comment');
 const User = require('../models/User');
+const UblastOffer = require('../models/UblastOffer');
 const { uploadMediaBuffer } = require('../services/cloudinary');
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -112,7 +113,12 @@ async function listUblasts(req, res) {
   ]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
-  return res.status(200).json({ ublasts, page, totalPages, totalCount });
+  const adminId = req.user?.id?.toString?.() || '';
+  const mapped = ublasts.map((ublast) => ({
+    ...ublast,
+    isEditable: !ublast.createdBy || ublast.createdBy.toString() === adminId,
+  }));
+  return res.status(200).json({ ublasts: mapped, page, totalPages, totalCount });
 }
 
 function parsePaging(value, fallback, max) {
@@ -508,6 +514,68 @@ async function updateManualPlacement(req, res) {
   return res.status(200).json({ placement });
 }
 
+async function updateUblast(req, res) {
+  const { ublastId } = req.params;
+  if (!mongoose.isValidObjectId(ublastId)) {
+    return res.status(400).json({ error: 'Invalid UBlast id.' });
+  }
+
+  const existing = await UBlast.findById(ublastId);
+  if (!existing) {
+    return res.status(404).json({ error: 'UBlast not found.' });
+  }
+  if (existing.createdBy && existing.createdBy.toString() !== req.user?.id) {
+    return res.status(403).json({ error: 'You can only edit your own UBlasts.' });
+  }
+
+  const updates = {};
+  if (req.body.title !== undefined) updates.title = req.body.title;
+  if (req.body.content !== undefined) updates.content = req.body.content;
+  if (req.body.scheduledFor !== undefined) {
+    updates.scheduledFor = req.body.scheduledFor ? new Date(req.body.scheduledFor) : undefined;
+  }
+
+  if (req.file) {
+    const mediaType = detectMediaType(req.file.mimetype);
+    if (!mediaType) {
+      return res.status(400).json({ error: 'Unsupported media type.' });
+    }
+    const uploadResult = await uploadMediaBuffer(req.file.buffer, {
+      folder: 'unap/ublasts',
+      resource_type: 'auto',
+    });
+    updates.mediaUrl = uploadResult.secure_url || uploadResult.url;
+    updates.mediaType = mediaType;
+  }
+
+  const updated = await UBlast.findByIdAndUpdate(
+    ublastId,
+    { $set: updates },
+    { new: true },
+  ).lean();
+
+  return res.status(200).json({ ublast: updated });
+}
+
+async function deleteUblast(req, res) {
+  const { ublastId } = req.params;
+  if (!mongoose.isValidObjectId(ublastId)) {
+    return res.status(400).json({ error: 'Invalid UBlast id.' });
+  }
+
+  const existing = await UBlast.findById(ublastId);
+  if (!existing) {
+    return res.status(404).json({ error: 'UBlast not found.' });
+  }
+
+  await Promise.all([
+    UblastOffer.deleteMany({ ublastId: existing._id }),
+    UBlast.deleteOne({ _id: existing._id }),
+  ]);
+
+  return res.status(200).json({ deleted: true });
+}
+
 module.exports = {
   createUblast,
   releaseUblast,
@@ -520,4 +588,6 @@ module.exports = {
   createManualPlacement,
   deleteManualPlacement,
   updateManualPlacement,
+  updateUblast,
+  deleteUblast,
 };

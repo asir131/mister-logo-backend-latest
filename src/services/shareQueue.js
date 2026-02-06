@@ -1,6 +1,6 @@
-const Post = require('../models/Post');
-const { resolvePlatformsForUser } = require('./lateAccounts');
-const lateApi = require('./lateApi');
+const Post = require("../models/Post");
+const { resolvePlatformsForUser } = require("./lateAccounts");
+const lateApi = require("./lateApi");
 
 function normalizeTargets(post) {
   const targets = new Set();
@@ -8,8 +8,8 @@ function normalizeTargets(post) {
     post.shareTargets.forEach((target) => targets.add(String(target)));
   }
   // Backward-compatible flags
-  if (post.shareToFacebook) targets.add('facebook');
-  if (post.shareToInstagram) targets.add('instagram');
+  if (post.shareToFacebook) targets.add("facebook");
+  if (post.shareToInstagram) targets.add("instagram");
   return Array.from(targets);
 }
 
@@ -19,7 +19,9 @@ async function enqueuePostShare(post) {
   if (targets.length === 0) return;
 
   setImmediate(() => {
-    console.log(`Queued post ${post._id} for LATE share: ${targets.join(', ')}`);
+    console.log(
+      `Queued post ${post._id} for LATE share: ${targets.join(", ")}`,
+    );
   });
 
   try {
@@ -31,8 +33,8 @@ async function enqueuePostShare(post) {
       const update = {};
       missing.forEach((platform) => {
         update[`shareStatus.${platform}`] = {
-          status: 'failed',
-          error: 'Platform account not connected.',
+          status: "failed",
+          error: "Platform account not connected.",
           updatedAt: new Date(),
         };
       });
@@ -41,7 +43,7 @@ async function enqueuePostShare(post) {
     if (platforms.length === 0) return;
 
     const latePost = await lateApi.createPost({
-      content: post.description || '',
+      content: post.description || "",
       mediaUrls: [post.mediaUrl],
       platforms,
       lateAccountId: lateProfileId,
@@ -55,7 +57,7 @@ async function enqueuePostShare(post) {
       },
     );
   } catch (err) {
-    console.error('LATE share error:', {
+    console.error("LATE share error:", {
       message: err.message,
       status: err.status,
       payload: err.payload,
@@ -67,7 +69,7 @@ async function enqueuePostShare(post) {
     const incs = {};
     targets.forEach((platform) => {
       update[`shareStatus.${platform}`] = {
-        status: 'failed',
+        status: "failed",
         error: err.message,
         updatedAt: new Date(),
       };
