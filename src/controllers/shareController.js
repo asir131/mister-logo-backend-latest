@@ -3,17 +3,26 @@ const { shareUblastInternal } = require('./ublastController');
 
 async function shareUnified(req, res) {
   const { id: userId } = req.user;
-  const { type, id, shareType, postId, ublastId } = req.body;
+  const { type, id, shareType, postId, ublastId, target } = req.body;
 
   const resolvedPostId = postId || (type === 'post' ? id : null);
   const resolvedUblastId = ublastId || (type === 'ublast' ? id : null);
 
   if (resolvedPostId) {
-    const result = await sharePostInternal({ userId, postId: resolvedPostId });
+    const result = await sharePostInternal({
+      userId,
+      postId: resolvedPostId,
+      target,
+    });
     if (result.error) {
       return res.status(result.status).json({ error: result.error });
     }
-    return res.status(201).json({ post: result.post, sharedFromUblast: false });
+    return res.status(201).json({
+      post: result.post,
+      sharedFromUblast: false,
+      message: result.message || result.warning,
+      warning: result.warning,
+    });
   }
 
   if (resolvedUblastId) {
@@ -33,9 +42,14 @@ async function shareUnified(req, res) {
     return res.status(200).json({ post: ublastResult.post, sharedFromUblast: true });
   }
 
-  const postResult = await sharePostInternal({ userId, postId: id });
+  const postResult = await sharePostInternal({ userId, postId: id, target });
   if (!postResult.error) {
-    return res.status(201).json({ post: postResult.post, sharedFromUblast: false });
+    return res.status(201).json({
+      post: postResult.post,
+      sharedFromUblast: false,
+      message: postResult.message || postResult.warning,
+      warning: postResult.warning,
+    });
   }
 
   return res.status(400).json({ error: 'Invalid share request.' });

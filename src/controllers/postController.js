@@ -122,6 +122,13 @@ function buildAttemptsFromTargets(targets) {
   return base;
 }
 
+function normalizeShareTarget(value) {
+  const target = String(value || '').toLowerCase().trim();
+  if (!target) return '';
+  if (target === 'x') return 'twitter';
+  return target;
+}
+
 async function enforceUblastShareRequirement(userId) {
   const now = new Date();
   const activeUblasts = await UBlast.find({
@@ -533,7 +540,7 @@ async function updatePost(req, res) {
   return res.status(200).json({ post });
 }
 
-async function sharePostInternal({ userId, postId }) {
+async function sharePostInternal({ userId, postId, target }) {
   if (!mongoose.isValidObjectId(postId)) {
     return { status: 400, error: 'Invalid post id.' };
   }
@@ -565,21 +572,97 @@ async function sharePostInternal({ userId, postId }) {
     return { status: 400, error: 'Profile required before sharing.' };
   }
 
+  const normalizedTarget = normalizeShareTarget(target);
+  const strictExternalOnlyTargets = new Set(['youtube']);
+  const externalTargets = new Set([
+    'instagram',
+    'twitter',
+    'tiktok',
+    'youtube',
+    'snapchat',
+    'spotify',
+  ]);
+  const statusTrackableTargets = new Set([
+    'instagram',
+    'twitter',
+    'tiktok',
+    'youtube',
+    'snapchat',
+  ]);
+
+  let externalTarget = externalTargets.has(normalizedTarget)
+    ? normalizedTarget
+    : '';
+  let shareTargets =
+    externalTarget && statusTrackableTargets.has(externalTarget)
+      ? [externalTarget]
+      : [];
+  let targetWarning = null;
+
+  let platforms = [];
+  let lateProfileId = null;
+  if (externalTarget) {
+    try {
+      const resolved = await resolvePlatformsForUser(userId, [externalTarget]);
+      platforms = resolved.platforms || [];
+      lateProfileId = resolved.lateProfileId || null;
+      if (!platforms.length || (resolved.missing || []).length) {
+        if (strictExternalOnlyTargets.has(externalTarget)) {
+          return {
+            status: 400,
+            error: `${externalTarget} account not connected.`,
+          };
+        }
+        targetWarning = `${externalTarget} account not connected. Shared only in UNAP.`;
+        externalTarget = '';
+        shareTargets = [];
+      }
+    } catch (err) {
+      if (strictExternalOnlyTargets.has(externalTarget)) {
+        return {
+          status: 500,
+          error:
+            err.message || `Could not prepare ${externalTarget} share.`,
+        };
+      }
+      targetWarning =
+        err.message || `Could not prepare ${externalTarget} share. Shared only in UNAP.`;
+      externalTarget = '';
+      shareTargets = [];
+    }
+  }
+
+  // YouTube shares from post share modal should not create an in-app shared post.
+  if (externalTarget && strictExternalOnlyTargets.has(externalTarget)) {
+    try {
+      await lateApi.createPost({
+        content: source.description || '',
+        mediaUrls: [source.mediaUrl],
+        platforms,
+        lateAccountId: lateProfileId,
+      });
+      return {
+        post: null,
+        message: `Post shared and queued to ${externalTarget}.`,
+      };
+    } catch (err) {
+      return {
+        status: 502,
+        error: err.message || `${externalTarget} publish failed.`,
+      };
+    }
+  }
+
   const created = await Post.create({
     userId,
     description: source.description,
     mediaType: source.mediaType,
     mediaUrl: source.mediaUrl,
-    shareToFacebook: false,
-    shareToInstagram: false,
-    shareStatus: {
-      twitter: { status: 'none' },
-      tiktok: { status: 'none' },
-      snapchat: { status: 'none' },
-      youtube: { status: 'none' },
-      facebook: { status: 'none' },
-      instagram: { status: 'none' },
-    },
+    shareToFacebook: shareTargets.includes('facebook'),
+    shareToInstagram: shareTargets.includes('instagram'),
+    shareTargets,
+    shareStatus: buildShareStatusFromTargets(shareTargets),
+    attempts: buildAttemptsFromTargets(shareTargets),
     ublastId: source.ublastId,
     sharedFromPostId: source._id,
     status: 'published',
@@ -604,19 +687,67 @@ async function sharePostInternal({ userId, postId }) {
     },
   );
 
-  return { post: created };
+  if (externalTarget) {
+    try {
+      const latePost = await lateApi.createPost({
+        content: created.description || '',
+        mediaUrls: [created.mediaUrl],
+        platforms,
+        lateAccountId: lateProfileId,
+      });
+      await Post.updateOne(
+        { _id: created._id },
+        { $set: { latePostId: latePost.id || latePost.postId } },
+      );
+    } catch (err) {
+      if (statusTrackableTargets.has(externalTarget)) {
+        await Post.updateOne(
+          { _id: created._id },
+          {
+            $set: {
+              [`shareStatus.${externalTarget}`]: {
+                status: 'failed',
+                error: err.message || 'External share failed.',
+                updatedAt: new Date(),
+              },
+            },
+            $inc: { [`attempts.${externalTarget}`]: 1 },
+          },
+        );
+      }
+      return {
+        post: created,
+        warning: `Shared in app, but ${externalTarget} publish failed.`,
+      };
+    }
+
+    return {
+      post: created,
+      message: `Post shared and queued to ${externalTarget}.`,
+    };
+  }
+
+  return {
+    post: created,
+    message: targetWarning || undefined,
+  };
 }
 
 async function sharePost(req, res) {
   const { id: userId } = req.user;
   const { postId } = req.params;
+  const { target } = req.body || {};
 
-  const result = await sharePostInternal({ userId, postId });
+  const result = await sharePostInternal({ userId, postId, target });
   if (result.error) {
     return res.status(result.status).json({ error: result.error });
   }
 
-  return res.status(201).json({ post: result.post });
+  return res.status(201).json({
+    post: result.post,
+    message: result.message || result.warning,
+    warning: result.warning,
+  });
 }
 
 function parsePaging(value, fallback, max) {
