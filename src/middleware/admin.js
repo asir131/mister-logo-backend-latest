@@ -13,7 +13,7 @@ function requireAdmin(req, res, next) {
     const token = header.slice('Bearer '.length).trim();
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
-      if (decoded?.role === 'admin') {
+      if (decoded?.role === 'admin' || decoded?.role === 'super_admin') {
         req.admin = decoded;
         return next();
       }

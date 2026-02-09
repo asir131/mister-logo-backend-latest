@@ -203,8 +203,25 @@ async function unrestrictUser(req, res) {
   });
 }
 
+async function clearLinkedAccounts(req, res) {
+  const { userId } = req.params;
+  if (!mongoose.isValidObjectId(userId)) {
+    return res.status(400).json({ error: 'Invalid user id.' });
+  }
+  const updated = await User.findByIdAndUpdate(
+    userId,
+    { $set: { connectedPlatforms: [], connectedAccounts: [] } },
+    { new: true },
+  );
+  if (!updated) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+  return res.status(200).json({ cleared: true });
+}
+
 module.exports = {
   listUsers,
   restrictUser,
   unrestrictUser,
+  clearLinkedAccounts,
 };

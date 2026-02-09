@@ -22,7 +22,22 @@ const {
   listUsers,
   restrictUser,
   unrestrictUser,
+  clearLinkedAccounts,
 } = require('../controllers/adminUserController');
+const {
+  listThreads,
+  listMessages,
+  updateThreadStatus,
+} = require('../controllers/adminSupportController');
+const {
+  changeAdminPassword,
+  getAdminSettings,
+  updateAdminSettings,
+  createAdmin,
+  listAdmins,
+  deleteAdmin,
+  resetAdminPassword,
+} = require('../controllers/adminSettingsController');
 const { listUserPosts } = require('../controllers/adminPostController');
 const { getTrending } = require('../controllers/trendingController');
 const { getAdminStats } = require('../controllers/adminStatsController');
@@ -95,6 +110,7 @@ router.delete('/trending/manual/:placementId', deleteManualPlacement);
 router.get('/users', listUsers);
 router.patch('/users/:userId/restrict', restrictUser);
 router.patch('/users/:userId/unrestrict', unrestrictUser);
+router.delete('/users/:userId/linked-accounts', clearLinkedAccounts);
 router.get('/posts', listUserPosts);
 router.get('/stats', getAdminStats);
 router.post(
@@ -122,5 +138,43 @@ router.get('/ublast-offers', listOffers);
 router.get('/rewarded-ublasts', listRewardedUblasts);
 router.post('/ublasts/:ublastId/reward', createRewardUblast);
 router.post('/ublasts/:ublastId/offer', createOffer);
+
+router.get('/support/threads', listThreads);
+router.get('/support/threads/:threadId/messages', listMessages);
+router.patch('/support/threads/:threadId/status', updateThreadStatus);
+router.patch(
+  '/settings/password',
+  [
+    body('newPassword').trim().notEmpty().withMessage('New password is required'),
+    body('confirmPassword').trim().notEmpty().withMessage('Confirm password is required'),
+  ],
+  changeAdminPassword,
+);
+router.get('/settings', getAdminSettings);
+router.patch(
+  '/settings',
+  [
+    body('shareWindowHours').isInt({ min: 1 }).withMessage('Share window hours must be >= 1'),
+    body('topTrendingHours').isInt({ min: 1 }).withMessage('Top trending hours must be >= 1'),
+    body('restrictionDays').isInt({ min: 1 }).withMessage('Restriction days must be >= 1'),
+    body('warningGraceHours').isInt({ min: 0 }).withMessage('Warning grace hours must be >= 0'),
+  ],
+  updateAdminSettings,
+);
+router.get('/settings/admins', listAdmins);
+router.post(
+  '/settings/admins',
+  [
+    body('adminId').trim().notEmpty().withMessage('Admin ID is required'),
+    body('password').trim().notEmpty().withMessage('Password is required'),
+  ],
+  createAdmin,
+);
+router.delete('/settings/admins/:adminId', deleteAdmin);
+router.patch(
+  '/settings/admins/:adminId/password',
+  [body('newPassword').trim().notEmpty().withMessage('New password is required')],
+  resetAdminPassword,
+);
 
 module.exports = router;

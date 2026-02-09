@@ -20,6 +20,7 @@ export default function PageShell({ title, subtitle, actions, children }) {
     "Scheduled",
     "Chat",
     "Profile",
+    "Support",
     "Login",
     "Register",
     "Connect Instagram",
@@ -131,6 +132,9 @@ export default function PageShell({ title, subtitle, actions, children }) {
             </Link>
             <Link className="btn ghost" href="/chat">
               {t("Chat")}
+            </Link>
+            <Link className="btn ghost" href="/support">
+              {t("Support")}
             </Link>
             <Link className="btn ghost" href="/profile">
               {t("Profile")}

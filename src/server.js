@@ -34,6 +34,7 @@ const viewRoutes = require("./routes/viewRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const translateRoutes = require("./routes/translateRoutes");
 const ublastOfferRoutes = require("./routes/ublastOfferRoutes");
+const supportRoutes = require("./routes/supportRoutes");
 const { startUblastJobs } = require("./jobs/ublastScheduler");
 const { startPostScheduler } = require("./jobs/postScheduler");
 
@@ -80,6 +81,7 @@ app.use("/api/views", viewRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/translate", translateRoutes);
 app.use("/api/ublast-offers", ublastOfferRoutes);
+app.use("/api/support", supportRoutes);
 app.use("/api/admin/auth", adminAuthRoutes);
 app.use("/api/admin", adminUblastRoutes);
 app.use("/webhooks", webhooksRoutes);
