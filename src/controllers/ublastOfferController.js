@@ -6,6 +6,7 @@ const UBlast = require('../models/UBlast');
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const APP_WEB_BASE_URL = process.env.APP_WEB_BASE_URL || 'http://localhost:3000';
+const APP_MOBILE_DEEPLINK_BASE = process.env.APP_MOBILE_DEEPLINK_BASE || '';
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
 
 function parsePaging(value, fallback, max) {
@@ -98,6 +99,7 @@ async function createCheckoutSession(req, res) {
     return res.status(400).json({ error: 'Offer expired.' });
   }
 
+  const redirectBase = APP_MOBILE_DEEPLINK_BASE || APP_WEB_BASE_URL;
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     payment_intent_data: {
@@ -115,8 +117,8 @@ async function createCheckoutSession(req, res) {
         },
       },
     ],
-    success_url: `${APP_WEB_BASE_URL}/trending?payment=success&offerId=${offer._id}`,
-    cancel_url: `${APP_WEB_BASE_URL}/trending?payment=cancel&offerId=${offer._id}`,
+    success_url: `${redirectBase}/trending?payment=success&offerId=${offer._id}`,
+    cancel_url: `${redirectBase}/trending?payment=cancel&offerId=${offer._id}`,
   });
 
   return res.status(200).json({ url: session.url });
