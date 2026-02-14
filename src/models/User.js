@@ -7,9 +7,10 @@ const userSchema = new mongoose.Schema(
     phoneNumber: { type: String, unique: true, sparse: true },
     passwordHash: { type: String },
     facebookId: { type: String, unique: true, sparse: true },
+    googleId: { type: String, unique: true, sparse: true },
     authProvider: {
       type: String,
-      enum: ['local', 'facebook'],
+      enum: ['local', 'facebook', 'google'],
       default: 'local',
     },
     isBlocked: { type: Boolean, default: false },

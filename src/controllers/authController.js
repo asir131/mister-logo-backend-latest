@@ -390,23 +390,43 @@ async function resetPassword(req, res) {
   }
 }
 
+async function buildAuthResponse(userObj) {
+  const token = issueToken(userObj);
+  const refreshToken = await issueRefreshToken(userObj._id || userObj.id);
+  return {
+    user: sanitizeUser(userObj),
+    token,
+    refreshToken,
+  };
+}
+
 async function facebookAuthSuccess(req, res) {
   try {
     const userDoc = req.user;
     const userObj = userDoc?.toObject ? userDoc.toObject() : userDoc;
-
-    const token = issueToken(userObj);
-    const refreshToken = await issueRefreshToken(userObj._id || userObj.id);
-
+    const payload = await buildAuthResponse(userObj);
     return res.status(200).json({
       message: 'Facebook login successful.',
-      user: sanitizeUser(userObj),
-      token,
-      refreshToken,
+      ...payload,
     });
   } catch (err) {
     console.error('Facebook login error:', err);
     return res.status(500).json({ error: 'Could not login with Facebook.' });
+  }
+}
+
+async function googleAuthSuccess(req, res) {
+  try {
+    const userDoc = req.user;
+    const userObj = userDoc?.toObject ? userDoc.toObject() : userDoc;
+    const payload = await buildAuthResponse(userObj);
+    return res.status(200).json({
+      message: 'Google login successful.',
+      ...payload,
+    });
+  } catch (err) {
+    console.error('Google login error:', err);
+    return res.status(500).json({ error: 'Could not login with Google.' });
   }
 }
 
@@ -418,5 +438,7 @@ module.exports = {
   forgotPassword,
   verifyResetOtp,
   resetPassword,
+  buildAuthResponse,
   facebookAuthSuccess,
+  googleAuthSuccess,
 };

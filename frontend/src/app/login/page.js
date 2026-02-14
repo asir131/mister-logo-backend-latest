@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PageShell from "../../components/PageShell";
 import LoginForm from "../../components/forms/LoginForm";
-import { apiRequest } from "../../lib/apiClient";
+import { apiRequest, getBaseUrl } from "../../lib/apiClient";
 import { setAuth, setProfile, setProfileCompleted } from "../../lib/authStore";
 
 const emptyLogin = { email: "", phoneNumber: "", password: "" };
@@ -60,6 +60,11 @@ export default function LoginPage() {
     });
   }
 
+  function handleGoogleLogin() {
+    const baseUrl = getBaseUrl();
+    window.location.href = `${baseUrl}/api/auth/google/web`;
+  }
+
   return (
     <PageShell
       title="Login"
@@ -83,6 +88,11 @@ export default function LoginPage() {
         onForgot={() => router.push("/forgot-password")}
         onRegister={() => router.push("/register")}
       />
+      <section className="card">
+        <button className="btn" type="button" onClick={handleGoogleLogin}>
+          Continue with Google
+        </button>
+      </section>
       {status && (
         <section className="card">
           <h2>Status</h2>

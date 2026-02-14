@@ -156,6 +156,7 @@ connectDB()
     server.listen(PORT, () => {
       // Simple startup log for visibility
       console.log(`Server running on port ${PORT}`);
+      console.log(`GOOGLE_CALLBACK_URL: ${process.env.GOOGLE_CALLBACK_URL || ""}`);
     });
   })
   .catch((err) => {
