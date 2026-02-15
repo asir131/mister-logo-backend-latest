@@ -2,6 +2,17 @@ const mongoose = require('mongoose');
 
 const Comment = require('../models/Comment');
 const Post = require('../models/Post');
+const User = require('../models/User');
+const Profile = require('../models/Profile');
+const { fireAndForgetPush } = require('../services/pushNotify');
+
+async function resolveDisplayName(userId) {
+  const [user, profile] = await Promise.all([
+    User.findById(userId).select('name').lean(),
+    Profile.findOne({ userId }).select('displayName username').lean(),
+  ]);
+  return profile?.displayName || profile?.username || user?.name || 'Someone';
+}
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
@@ -22,8 +33,10 @@ async function createComment(req, res) {
     return res.status(400).json({ error: 'Comment text is required.' });
   }
 
-  const postExists = await Post.exists({ _id: postId });
-  if (!postExists) {
+  const post = await Post.findById(postId)
+    .select('_id userId')
+    .lean();
+  if (!post) {
     return res.status(404).json({ error: 'Post not found.' });
   }
 
@@ -32,6 +45,23 @@ async function createComment(req, res) {
     postId,
     text: text.trim(),
   });
+
+  const ownerId = post.userId?.toString();
+  if (ownerId && ownerId !== userId) {
+    const actorName = await resolveDisplayName(userId);
+    const previewText = text.trim().slice(0, 80);
+    fireAndForgetPush({
+      userIds: [ownerId],
+      title: 'New comment',
+      body: `${actorName}: ${previewText}`,
+      data: {
+        type: 'comment',
+        actorUserId: userId,
+        postId: String(postId),
+      },
+      screen: '/screens/home/notification',
+    });
+  }
 
   return res.status(201).json({ comment });
 }

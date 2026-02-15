@@ -16,6 +16,47 @@ function parsePaging(value, fallback, max) {
   return parsed;
 }
 
+function resolveServerBaseUrl(req) {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const forwardedHost = req.headers['x-forwarded-host'];
+  const protocol =
+    (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto) ||
+    req.protocol ||
+    'http';
+  const host =
+    (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) ||
+    req.get('host');
+  if (!host) return APP_WEB_BASE_URL;
+  return `${protocol}://${host}`;
+}
+
+function normalizeAppRedirectUri(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const parsed = new URL(value.trim());
+    if (['unap:', 'exp:', 'exps:'].includes(parsed.protocol)) {
+      return parsed.toString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function withQuery(url, params) {
+  try {
+    const target = new URL(url);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && String(value).length > 0) {
+        target.searchParams.set(key, String(value));
+      }
+    });
+    return target.toString();
+  } catch {
+    return url;
+  }
+}
+
 async function listMyOffers(req, res) {
   const userId = req.user.id;
   const page = parsePaging(req.query.page, 1);
@@ -99,7 +140,23 @@ async function createCheckoutSession(req, res) {
     return res.status(400).json({ error: 'Offer expired.' });
   }
 
-  const redirectBase = APP_MOBILE_DEEPLINK_BASE || APP_WEB_BASE_URL;
+  const requestedRedirect =
+    req.body?.appRedirectUri ||
+    req.query?.appRedirectUri ||
+    APP_MOBILE_DEEPLINK_BASE;
+  const appRedirectUri = normalizeAppRedirectUri(requestedRedirect);
+  const serverBaseUrl = resolveServerBaseUrl(req);
+  const successUrl = appRedirectUri
+    ? `${serverBaseUrl}/api/ublast-offers/return?status=success&offerId=${offer._id}&clientRedirect=${encodeURIComponent(
+        appRedirectUri,
+      )}`
+    : `${APP_WEB_BASE_URL}/trending?payment=success&offerId=${offer._id}`;
+  const cancelUrl = appRedirectUri
+    ? `${serverBaseUrl}/api/ublast-offers/return?status=cancel&offerId=${offer._id}&clientRedirect=${encodeURIComponent(
+        appRedirectUri,
+      )}`
+    : `${APP_WEB_BASE_URL}/trending?payment=cancel&offerId=${offer._id}`;
+
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     payment_intent_data: {
@@ -117,11 +174,46 @@ async function createCheckoutSession(req, res) {
         },
       },
     ],
-    success_url: `${redirectBase}/trending?payment=success&offerId=${offer._id}`,
-    cancel_url: `${redirectBase}/trending?payment=cancel&offerId=${offer._id}`,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
   });
 
   return res.status(200).json({ url: session.url });
+}
+
+async function handleCheckoutReturn(req, res) {
+  const payment = String(req.query.status || '').toLowerCase() === 'success' ? 'success' : 'cancel';
+  const offerId = req.query.offerId ? String(req.query.offerId) : '';
+  const requestedRedirect = req.query.clientRedirect || APP_MOBILE_DEEPLINK_BASE;
+  const appRedirectUri = normalizeAppRedirectUri(requestedRedirect);
+
+  if (!appRedirectUri) {
+    const fallback = `${APP_WEB_BASE_URL}/trending?payment=${payment}${
+      offerId ? `&offerId=${encodeURIComponent(offerId)}` : ''
+    }`;
+    return res.redirect(302, fallback);
+  }
+
+  const redirectUrl = withQuery(appRedirectUri, { payment, offerId });
+  const escapedRedirect = redirectUrl.replace(/"/g, '&quot;');
+  const escapedPayment = payment === 'success' ? 'successful' : 'cancelled';
+
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  return res.status(200).send(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Returning to app...</title>
+  </head>
+  <body style="font-family: Arial, sans-serif; padding: 24px;">
+    <p>Payment ${escapedPayment}. Returning to app...</p>
+    <p><a href="${escapedRedirect}">Tap here if not redirected</a></p>
+    <script>
+      window.location.replace("${escapedRedirect}");
+    </script>
+  </body>
+</html>`);
 }
 
 async function cancelOffer(req, res) {
@@ -186,6 +278,7 @@ module.exports = {
   listMyOffers,
   createPaymentIntent,
   createCheckoutSession,
+  handleCheckoutReturn,
   cancelOffer,
   handleStripeWebhook,
 };

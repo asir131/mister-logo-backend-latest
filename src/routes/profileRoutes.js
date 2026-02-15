@@ -30,6 +30,18 @@ const urlField = (field, label) =>
     .isURL({ require_protocol: true })
     .withMessage(`${label} must be a valid URL with http/https.`);
 
+const dateOfBirthField = body('dateOfBirth')
+  .optional({ nullable: true, checkFalsy: true })
+  .isISO8601()
+  .withMessage('Date of birth must be a valid date (YYYY-MM-DD).')
+  .toDate()
+  .custom((value) => {
+    if (value && value > new Date()) {
+      throw new Error('Date of birth cannot be in the future.');
+    }
+    return true;
+  });
+
 router.post(
   '/complete',
   authenticate,
@@ -38,6 +50,7 @@ router.post(
     body('username').trim().notEmpty().withMessage('Username is required'),
     body('role').trim().notEmpty().withMessage('Role is required'),
     body('displayName').optional({ nullable: true }).trim(),
+    dateOfBirthField,
     body('bio').optional({ nullable: true }).trim(),
     body('autoTranslateEnabled').optional({ nullable: true }).isBoolean().toBoolean(),
     body('preferredLanguage').optional({ nullable: true }).isString(),
@@ -60,6 +73,7 @@ router.patch(
     body('username').optional({ nullable: true }).trim().notEmpty(),
     body('role').optional({ nullable: true }).trim(),
     body('displayName').optional({ nullable: true }).trim(),
+    dateOfBirthField,
     body('bio').optional({ nullable: true }).trim(),
     body('autoTranslateEnabled').optional({ nullable: true }).isBoolean().toBoolean(),
     body('preferredLanguage').optional({ nullable: true }).isString(),

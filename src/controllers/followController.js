@@ -3,6 +3,15 @@ const mongoose = require('mongoose');
 const Follow = require('../models/Follow');
 const User = require('../models/User');
 const Profile = require('../models/Profile');
+const { fireAndForgetPush } = require('../services/pushNotify');
+
+async function resolveDisplayName(userId) {
+  const [user, profile] = await Promise.all([
+    User.findById(userId).select('name').lean(),
+    Profile.findOne({ userId }).select('displayName username').lean(),
+  ]);
+  return profile?.displayName || profile?.username || user?.name || 'Someone';
+}
 
 async function followUser(req, res) {
   const followerId = req.user.id;
@@ -44,6 +53,18 @@ async function followUser(req, res) {
       },
     ),
   ]);
+
+  const actorName = await resolveDisplayName(followerId);
+  fireAndForgetPush({
+    userIds: [userId],
+    title: 'New follower',
+    body: `${actorName} started following you.`,
+    data: {
+      type: 'follow',
+      actorUserId: followerId,
+    },
+    screen: '/screens/home/notification',
+  });
 
   return res.status(200).json({ following: true });
 }

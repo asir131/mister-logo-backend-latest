@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const Follow = require('../models/Follow');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
+const Block = require('../models/Block');
 
 function makePairKey(a, b) {
   const [first, second] = [a.toString(), b.toString()].sort();
@@ -20,6 +21,17 @@ async function ensureMutualFollow(userId, otherUserId) {
 function normalizeText(value) {
   if (typeof value !== 'string') return '';
   return value.trim();
+}
+
+async function getBlockInfo(userId, otherUserId) {
+  const [blockedByMe, blockedMe] = await Promise.all([
+    Block.exists({ blockerId: userId, blockedId: otherUserId }),
+    Block.exists({ blockerId: otherUserId, blockedId: userId }),
+  ]);
+  return {
+    blockedByMe: Boolean(blockedByMe),
+    blockedMe: Boolean(blockedMe),
+  };
 }
 
 function registerChatSocket(io, socket) {
@@ -43,6 +55,11 @@ function registerChatSocket(io, socket) {
 
       if (senderId.toString() === recipientId.toString()) {
         throw new Error('Cannot chat with yourself.');
+      }
+
+      const blockInfo = await getBlockInfo(senderId, recipientId);
+      if (blockInfo.blockedByMe || blockInfo.blockedMe) {
+        throw new Error('Messaging is blocked for this user.');
       }
 
       const mutual = await ensureMutualFollow(senderId, recipientId);
