@@ -1280,6 +1280,188 @@ async function listUclips(req, res) {
   });
 }
 
+async function getPostById(req, res) {
+  const { id: userId } = req.user;
+  const { postId } = req.params;
+
+  if (!mongoose.isValidObjectId(postId)) {
+    return res.status(400).json({ error: 'Invalid post id.' });
+  }
+
+  const viewerId = new mongoose.Types.ObjectId(userId);
+  const objectPostId = new mongoose.Types.ObjectId(postId);
+
+  const source = await Post.findById(postId)
+    .select('userId status isApproved postType')
+    .lean();
+
+  if (!source) {
+    return res.status(404).json({ error: 'Post not found.' });
+  }
+
+  const isOwner = source.userId?.toString() === userId.toString();
+  const isVisibleToViewer =
+    isOwner ||
+    ((source.status === 'published' || source.status === undefined) &&
+      (source.isApproved === true || source.isApproved === undefined) &&
+      source.postType !== 'uclip');
+
+  if (!isVisibleToViewer) {
+    return res.status(404).json({ error: 'Post not found.' });
+  }
+
+  const [post] = await Post.aggregate([
+    { $match: { _id: objectPostId } },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'userId',
+        foreignField: '_id',
+        as: 'author',
+      },
+    },
+    { $unwind: '$author' },
+    {
+      $lookup: {
+        from: 'profiles',
+        localField: 'userId',
+        foreignField: 'userId',
+        as: 'profile',
+      },
+    },
+    { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: 'likes',
+        let: { postId: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$postId', '$$postId'] } } },
+          { $count: 'count' },
+        ],
+        as: 'likeCounts',
+      },
+    },
+    {
+      $lookup: {
+        from: 'comments',
+        let: { postId: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$postId', '$$postId'] } } },
+          { $count: 'count' },
+        ],
+        as: 'commentCounts',
+      },
+    },
+    {
+      $lookup: {
+        from: 'likes',
+        let: { postId: '$_id', viewerId },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$postId', '$$postId'] },
+                  { $eq: ['$userId', '$$viewerId'] },
+                ],
+              },
+            },
+          },
+          { $limit: 1 },
+        ],
+        as: 'viewerLike',
+      },
+    },
+    {
+      $lookup: {
+        from: 'follows',
+        let: { authorId: '$userId', viewerId },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$followingId', '$$authorId'] },
+                  { $eq: ['$followerId', '$$viewerId'] },
+                ],
+              },
+            },
+          },
+          { $limit: 1 },
+        ],
+        as: 'viewerFollow',
+      },
+    },
+    {
+      $lookup: {
+        from: 'savedposts',
+        let: { postId: '$_id', viewerId },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$postId', '$$postId'] },
+                  { $eq: ['$userId', '$$viewerId'] },
+                ],
+              },
+            },
+          },
+          { $limit: 1 },
+        ],
+        as: 'viewerSaved',
+      },
+    },
+    {
+      $addFields: {
+        likeCount: { $ifNull: [{ $arrayElemAt: ['$likeCounts.count', 0] }, 0] },
+        commentCount: { $ifNull: [{ $arrayElemAt: ['$commentCounts.count', 0] }, 0] },
+        viewerHasLiked: { $gt: [{ $size: '$viewerLike' }, 0] },
+        viewerIsFollowing: {
+          $cond: [
+            { $eq: ['$userId', viewerId] },
+            false,
+            { $gt: [{ $size: '$viewerFollow' }, 0] },
+          ],
+        },
+        viewerHasBookmarked: { $gt: [{ $size: '$viewerSaved' }, 0] },
+      },
+    },
+    {
+      $project: {
+        description: 1,
+        mediaType: 1,
+        mediaUrl: 1,
+        ublastId: 1,
+        createdAt: 1,
+        viewCount: 1,
+        likeCount: 1,
+        commentCount: 1,
+        viewerHasLiked: 1,
+        viewerIsFollowing: 1,
+        viewerHasBookmarked: 1,
+        author: {
+          id: '$author._id',
+          name: '$author.name',
+          email: '$author.email',
+        },
+        profile: {
+          username: '$profile.username',
+          displayName: '$profile.displayName',
+          role: '$profile.role',
+          profileImageUrl: '$profile.profileImageUrl',
+        },
+      },
+    },
+  ]);
+
+  if (!post) {
+    return res.status(404).json({ error: 'Post not found.' });
+  }
+
+  return res.status(200).json({ post });
+}
+
 async function deleteCancelledScheduledPost(req, res) {
   const userId = req.user.id;
   const { postId } = req.params;
@@ -1307,6 +1489,7 @@ module.exports = {
   updatePost,
   sharePost,
   sharePostInternal,
+  getPostById,
   listScheduledPosts,
   updateScheduledPost,
   cancelScheduledPost,

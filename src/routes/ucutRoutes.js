@@ -37,7 +37,14 @@ router.post(
   '/',
   authenticate,
   upload.single('media'),
-  [body('text').optional({ nullable: true }).isString()],
+  [
+    body('text').optional({ nullable: true }).isString(),
+    body('mediaUrl').optional({ nullable: true }).isURL({ require_protocol: true }),
+    body('mediaType')
+      .optional({ nullable: true })
+      .isIn(['image', 'video', 'audio'])
+      .withMessage('mediaType must be image, video, or audio'),
+  ],
   createUcut,
 );
 

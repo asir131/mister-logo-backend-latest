@@ -15,6 +15,16 @@ function normalizeUsername(username) {
   return username.trim().toLowerCase();
 }
 
+function normalizeDateOfBirth(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
 async function uploadProfileImage(file, userId) {
   if (!file) return null;
   const result = await uploadImageBuffer(file.buffer, {
@@ -35,6 +45,7 @@ async function completeProfile(req, res) {
     username,
     displayName,
     role,
+    dateOfBirth,
     bio,
     instagramUrl,
     tiktokUrl,
@@ -68,6 +79,7 @@ async function completeProfile(req, res) {
       username: normalizedUsername,
       displayName,
       role,
+      dateOfBirth: normalizeDateOfBirth(dateOfBirth) || undefined,
       bio,
       profileImageUrl,
       instagramUrl,
@@ -137,6 +149,7 @@ async function updateProfile(req, res) {
 
     assignIfPresent(updates, req.body, 'displayName');
     assignIfPresent(updates, req.body, 'role');
+    assignIfPresent(updates, req.body, 'dateOfBirth', normalizeDateOfBirth);
     assignIfPresent(updates, req.body, 'bio');
     assignIfPresent(updates, req.body, 'instagramUrl');
     assignIfPresent(updates, req.body, 'tiktokUrl');

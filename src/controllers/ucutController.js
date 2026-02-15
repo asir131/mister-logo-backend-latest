@@ -9,6 +9,7 @@ const Profile = require('../models/Profile');
 const User = require('../models/User');
 const { uploadMediaBuffer } = require('../services/cloudinary');
 const { splitMedia, DEFAULT_SEGMENT_SECONDS } = require('../services/mediaSplit');
+const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -24,6 +25,15 @@ function detectMediaType(mimetype) {
   if (mimetype.startsWith('audio/')) return 'audio';
   if (mimetype.startsWith('image/')) return 'image';
   return null;
+}
+
+function isValidHttpUrl(value) {
+  try {
+    const parsed = new URL(String(value || '').trim());
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function buildExpiryDate() {
@@ -51,6 +61,14 @@ function parsePaging(value, fallback, max) {
   return parsed;
 }
 
+async function resolveDisplayName(userId) {
+  const [user, profile] = await Promise.all([
+    User.findById(userId).select('name').lean(),
+    Profile.findOne({ userId }).select('displayName username').lean(),
+  ]);
+  return profile?.displayName || profile?.username || user?.name || 'Someone';
+}
+
 async function createUcut(req, res) {
   const validationError = handleValidation(req, res);
   if (validationError !== null) return;
@@ -59,9 +77,23 @@ async function createUcut(req, res) {
   const text = req.body?.text ? String(req.body.text).trim() : '';
   const hasText = Boolean(text);
   const hasFile = Boolean(req.file);
+  const remoteMediaUrl = req.body?.mediaUrl ? String(req.body.mediaUrl).trim() : '';
+  const remoteMediaTypeRaw = req.body?.mediaType ? String(req.body.mediaType).trim() : '';
+  const remoteMediaType = ['image', 'video', 'audio'].includes(remoteMediaTypeRaw)
+    ? remoteMediaTypeRaw
+    : '';
+  const hasRemoteMedia = Boolean(remoteMediaUrl && remoteMediaType);
 
-  if (!hasText && !hasFile) {
-    return res.status(400).json({ error: 'Text or media file is required.' });
+  if (!hasText && !hasFile && !hasRemoteMedia) {
+    return res.status(400).json({ error: 'Text, media file, or media URL is required.' });
+  }
+
+  if (remoteMediaUrl && !isValidHttpUrl(remoteMediaUrl)) {
+    return res.status(400).json({ error: 'mediaUrl must be a valid http/https URL.' });
+  }
+
+  if (remoteMediaUrl && !remoteMediaType) {
+    return res.status(400).json({ error: 'mediaType must be image, video, or audio when mediaUrl is used.' });
   }
 
   if (hasFile) {
@@ -140,6 +172,20 @@ async function createUcut(req, res) {
       ucut: created,
       wasSplit: splitResult.wasSplit,
     });
+  }
+
+  if (hasRemoteMedia) {
+    const created = await Ucut.create({
+      userId,
+      type: remoteMediaType,
+      mediaType: remoteMediaType,
+      text: hasText ? text : undefined,
+      segments: [{ url: remoteMediaUrl, order: 1 }],
+      segmentCount: 1,
+      expiresAt: buildExpiryDate(),
+    });
+
+    return res.status(201).json({ ucut: created, wasSplit: false });
   }
 
   const created = await Ucut.create({
@@ -260,11 +306,29 @@ async function likeUcut(req, res) {
     return res.status(404).json({ error: 'UCut not found.' });
   }
 
-  await UcutLike.updateOne(
+  const result = await UcutLike.updateOne(
     { ucutId, userId },
     { $setOnInsert: { ucutId, userId } },
     { upsert: true },
   );
+
+  const isNewLike = Boolean(result?.upsertedCount);
+  const ownerId = ucut.userId?.toString();
+  if (isNewLike && ownerId && ownerId !== userId) {
+    const actorName = await resolveDisplayName(userId);
+    fireAndForgetNotifyAndPush({
+      io: req.app.get('io'),
+      userIds: [ownerId],
+      title: 'New like',
+      body: `${actorName} liked your UCut.`,
+      type: 'like',
+      data: {
+        actorUserId: String(userId),
+        ucutId: String(ucutId),
+      },
+      screen: '/screens/home/ucuts-view',
+    });
+  }
 
   return res.status(200).json({ liked: true });
 }
@@ -339,6 +403,24 @@ async function addComment(req, res) {
     userId,
     text,
   });
+
+  const ownerId = ucut.userId?.toString();
+  if (ownerId && ownerId !== userId) {
+    const actorName = await resolveDisplayName(userId);
+    const previewText = text.slice(0, 80);
+    fireAndForgetNotifyAndPush({
+      io: req.app.get('io'),
+      userIds: [ownerId],
+      title: 'New comment',
+      body: `${actorName}: ${previewText}`,
+      type: 'comment',
+      data: {
+        actorUserId: String(userId),
+        ucutId: String(ucutId),
+      },
+      screen: '/screens/home/ucuts-view',
+    });
+  }
 
   return res.status(201).json({ comment });
 }

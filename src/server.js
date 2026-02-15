@@ -7,7 +7,11 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 const { registerChatSocket } = require("./sockets/chatSocket");
-const { addOnlineUser, removeOnlineUser } = require("./store/onlineUsers");
+const {
+  addOnlineUser,
+  removeOnlineUser,
+  getOnlineUserIds,
+} = require("./store/onlineUsers");
 
 dotenv.config();
 require("./config/passport");
@@ -35,6 +39,7 @@ const uploadRoutes = require("./routes/uploadRoutes");
 const translateRoutes = require("./routes/translateRoutes");
 const ublastOfferRoutes = require("./routes/ublastOfferRoutes");
 const supportRoutes = require("./routes/supportRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 const { startUblastJobs } = require("./jobs/ublastScheduler");
 const { startPostScheduler } = require("./jobs/postScheduler");
 
@@ -83,6 +88,7 @@ app.use("/api/uploads", uploadRoutes);
 app.use("/api/translate", translateRoutes);
 app.use("/api/ublast-offers", ublastOfferRoutes);
 app.use("/api/support", supportRoutes);
+app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin/auth", adminAuthRoutes);
 app.use("/api/admin", adminUblastRoutes);
 app.use("/webhooks", webhooksRoutes);
@@ -135,15 +141,35 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   if (socket.userId) {
     socket.join(`user:${socket.userId}`);
-    addOnlineUser(socket.userId);
-    io.emit("presence:update", { userId: socket.userId, online: true });
+    const becameOnline = addOnlineUser(socket.userId, socket.id);
+    socket.emit("presence:list", {
+      onlineUserIds: Array.from(getOnlineUserIds()),
+    });
+    if (becameOnline) {
+      io.emit("presence:update", { userId: socket.userId, online: true });
+    }
   }
+
+  socket.on("presence:join", () => {
+    socket.emit("presence:list", {
+      onlineUserIds: Array.from(getOnlineUserIds()),
+    });
+  });
+
+  socket.on("presence:list", () => {
+    socket.emit("presence:list", {
+      onlineUserIds: Array.from(getOnlineUserIds()),
+    });
+  });
+
   registerChatSocket(io, socket);
 
   socket.on("disconnect", () => {
     if (socket.userId) {
-      removeOnlineUser(socket.userId);
-      io.emit("presence:update", { userId: socket.userId, online: false });
+      const becameOffline = removeOnlineUser(socket.userId, socket.id);
+      if (becameOffline) {
+        io.emit("presence:update", { userId: socket.userId, online: false });
+      }
     }
   });
 });

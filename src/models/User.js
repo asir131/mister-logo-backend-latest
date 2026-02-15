@@ -5,6 +5,7 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     phoneNumber: { type: String, unique: true, sparse: true },
+    avatarUrl: { type: String },
     passwordHash: { type: String },
     facebookId: { type: String, unique: true, sparse: true },
     googleId: { type: String, unique: true, sparse: true },
@@ -28,6 +29,19 @@ const userSchema = new mongoose.Schema(
         username: { type: String },
         displayName: { type: String },
         profileId: { type: String },
+      },
+    ],
+    pushTokens: [
+      {
+        token: { type: String, required: true },
+        platform: {
+          type: String,
+          enum: ['android', 'ios', 'web', 'unknown'],
+          default: 'unknown',
+        },
+        deviceId: { type: String },
+        appVersion: { type: String },
+        updatedAt: { type: Date, default: Date.now },
       },
     ],
     lateAccountId: { type: String, index: true },

@@ -8,6 +8,7 @@ const Message = require('../models/Message');
 const Block = require('../models/Block');
 const { uploadMediaBuffer } = require('../services/cloudinary');
 const { getOnlineUserIds } = require('../store/onlineUsers');
+const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
@@ -63,6 +64,22 @@ function getDeletedAtForUser(conversation, userId) {
   return entry?.deletedAt ? new Date(entry.deletedAt) : null;
 }
 
+async function resolveDisplayName(userId) {
+  const [user, profile] = await Promise.all([
+    User.findById(userId).select('name').lean(),
+    Profile.findOne({ userId }).select('displayName username').lean(),
+  ]);
+  return profile?.displayName || profile?.username || user?.name || 'Someone';
+}
+
+function buildMessagePreview(text, mediaType) {
+  if (text && text.trim()) return text.trim().slice(0, 120);
+  if (mediaType === 'image') return 'Sent a photo';
+  if (mediaType === 'video') return 'Sent a video';
+  if (mediaType === 'audio') return 'Sent an audio message';
+  return 'Sent a file';
+}
+
 async function getBlockInfo(userId, otherUserId) {
   const [blockedByMe, blockedMe] = await Promise.all([
     Block.exists({ blockerId: userId, blockedId: otherUserId }),
@@ -72,6 +89,21 @@ async function getBlockInfo(userId, otherUserId) {
     blockedByMe: Boolean(blockedByMe),
     blockedMe: Boolean(blockedMe),
   };
+}
+
+function emitBlockUpdate(req, blockerUserId, blockedUserId, blocked) {
+  const io = req.app.get('io');
+  if (!io) return;
+
+  const payload = {
+    blockerUserId: String(blockerUserId),
+    blockedUserId: String(blockedUserId),
+    blocked: Boolean(blocked),
+    updatedAt: new Date().toISOString(),
+  };
+
+  io.to(`user:${String(blockerUserId)}`).emit('chat:block-updated', payload);
+  io.to(`user:${String(blockedUserId)}`).emit('chat:block-updated', payload);
 }
 
 async function getChatList(req, res) {
@@ -397,6 +429,20 @@ async function sendMessage(req, res) {
     });
   }
 
+  const senderName = await resolveDisplayName(userId);
+  fireAndForgetNotifyAndPush({
+    io: req.app.get('io'),
+    userIds: [otherUserId],
+    title: senderName,
+    body: buildMessagePreview(text, mediaType),
+    type: 'chat',
+    data: {
+      senderId: userId,
+      conversationId: String(conversation._id),
+    },
+    screen: `/screens/chat/chat-screen?userId=${userId}`,
+  });
+
   return res.status(201).json({ message, conversationId: conversation._id });
 }
 
@@ -488,6 +534,7 @@ async function blockUser(req, res) {
 
   if (shouldUnblock) {
     await Block.deleteOne({ blockerId: userId, blockedId: otherUserId });
+    emitBlockUpdate(req, userId, otherUserId, false);
     return res.status(200).json({ blocked: false });
   }
 
@@ -496,6 +543,8 @@ async function blockUser(req, res) {
     { $setOnInsert: { blockerId: userId, blockedId: otherUserId } },
     { upsert: true },
   );
+
+  emitBlockUpdate(req, userId, otherUserId, true);
 
   return res.status(200).json({ blocked: true });
 }
@@ -513,6 +562,7 @@ async function unblockUser(req, res) {
   }
 
   await Block.deleteOne({ blockerId: userId, blockedId: otherUserId });
+  emitBlockUpdate(req, userId, otherUserId, false);
   return res.status(200).json({ blocked: false });
 }
 

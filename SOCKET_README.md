@@ -113,6 +113,8 @@ This file already:
 
 ## 9) Common errors
 
+
+
 - `Authorization token required`
   - User not logged in or token missing.
 - `Invalid or expired token`

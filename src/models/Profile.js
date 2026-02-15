@@ -6,6 +6,7 @@ const profileSchema = new mongoose.Schema(
     username: { type: String, required: true, unique: true },
     displayName: { type: String },
     role: { type: String, required: true },
+    dateOfBirth: { type: Date },
     bio: { type: String },
     profileImageUrl: { type: String },
     instagramUrl: { type: String },
