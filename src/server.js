@@ -7,7 +7,11 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 const { registerChatSocket } = require("./sockets/chatSocket");
-const { addOnlineUser, removeOnlineUser } = require("./store/onlineUsers");
+const {
+  addOnlineUser,
+  removeOnlineUser,
+  getOnlineUserIds,
+} = require("./store/onlineUsers");
 
 dotenv.config();
 require("./config/passport");
@@ -137,15 +141,35 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   if (socket.userId) {
     socket.join(`user:${socket.userId}`);
-    addOnlineUser(socket.userId);
-    io.emit("presence:update", { userId: socket.userId, online: true });
+    const becameOnline = addOnlineUser(socket.userId, socket.id);
+    socket.emit("presence:list", {
+      onlineUserIds: Array.from(getOnlineUserIds()),
+    });
+    if (becameOnline) {
+      io.emit("presence:update", { userId: socket.userId, online: true });
+    }
   }
+
+  socket.on("presence:join", () => {
+    socket.emit("presence:list", {
+      onlineUserIds: Array.from(getOnlineUserIds()),
+    });
+  });
+
+  socket.on("presence:list", () => {
+    socket.emit("presence:list", {
+      onlineUserIds: Array.from(getOnlineUserIds()),
+    });
+  });
+
   registerChatSocket(io, socket);
 
   socket.on("disconnect", () => {
     if (socket.userId) {
-      removeOnlineUser(socket.userId);
-      io.emit("presence:update", { userId: socket.userId, online: false });
+      const becameOffline = removeOnlineUser(socket.userId, socket.id);
+      if (becameOffline) {
+        io.emit("presence:update", { userId: socket.userId, online: false });
+      }
     }
   });
 });

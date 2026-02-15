@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const Follow = require('../models/Follow');
 const User = require('../models/User');
 const Profile = require('../models/Profile');
-const { fireAndForgetPush } = require('../services/pushNotify');
+const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 
 async function resolveDisplayName(userId) {
   const [user, profile] = await Promise.all([
@@ -55,12 +55,13 @@ async function followUser(req, res) {
   ]);
 
   const actorName = await resolveDisplayName(followerId);
-  fireAndForgetPush({
+  fireAndForgetNotifyAndPush({
+    io: req.app.get('io'),
     userIds: [userId],
     title: 'New follower',
     body: `${actorName} started following you.`,
+    type: 'follow',
     data: {
-      type: 'follow',
       actorUserId: followerId,
     },
     screen: '/screens/home/notification',

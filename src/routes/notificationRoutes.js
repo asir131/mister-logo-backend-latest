@@ -7,6 +7,10 @@ const {
   unregisterPushToken,
   listMyPushTokens,
   sendPushNotification,
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
 } = require('../controllers/notificationController');
 
 const router = express.Router();
@@ -31,6 +35,10 @@ router.delete(
 );
 
 router.get('/tokens/me', authenticate, listMyPushTokens);
+router.get('/', authenticate, listNotifications);
+router.patch('/read-all', authenticate, markAllNotificationsRead);
+router.patch('/:notificationId/read', authenticate, markNotificationRead);
+router.delete('/:notificationId', authenticate, deleteNotification);
 
 router.post(
   '/send',

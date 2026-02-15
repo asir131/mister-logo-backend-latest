@@ -8,7 +8,7 @@ const Message = require('../models/Message');
 const Block = require('../models/Block');
 const { uploadMediaBuffer } = require('../services/cloudinary');
 const { getOnlineUserIds } = require('../store/onlineUsers');
-const { fireAndForgetPush } = require('../services/pushNotify');
+const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
@@ -430,12 +430,13 @@ async function sendMessage(req, res) {
   }
 
   const senderName = await resolveDisplayName(userId);
-  fireAndForgetPush({
+  fireAndForgetNotifyAndPush({
+    io: req.app.get('io'),
     userIds: [otherUserId],
     title: senderName,
     body: buildMessagePreview(text, mediaType),
+    type: 'chat',
     data: {
-      type: 'chat',
       senderId: userId,
       conversationId: String(conversation._id),
     },

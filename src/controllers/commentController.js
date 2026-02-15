@@ -4,7 +4,7 @@ const Comment = require('../models/Comment');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const Profile = require('../models/Profile');
-const { fireAndForgetPush } = require('../services/pushNotify');
+const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 
 async function resolveDisplayName(userId) {
   const [user, profile] = await Promise.all([
@@ -50,12 +50,13 @@ async function createComment(req, res) {
   if (ownerId && ownerId !== userId) {
     const actorName = await resolveDisplayName(userId);
     const previewText = text.trim().slice(0, 80);
-    fireAndForgetPush({
+    fireAndForgetNotifyAndPush({
+      io: req.app.get('io'),
       userIds: [ownerId],
       title: 'New comment',
       body: `${actorName}: ${previewText}`,
+      type: 'comment',
       data: {
-        type: 'comment',
         actorUserId: userId,
         postId: String(postId),
       },

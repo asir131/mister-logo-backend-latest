@@ -4,7 +4,7 @@ const Like = require('../models/Like');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const Profile = require('../models/Profile');
-const { fireAndForgetPush } = require('../services/pushNotify');
+const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 
 async function resolveDisplayName(userId) {
   const [user, profile] = await Promise.all([
@@ -40,12 +40,13 @@ async function likePost(req, res) {
 
   if (isNewLike && ownerId && ownerId !== userId) {
     const actorName = await resolveDisplayName(userId);
-    fireAndForgetPush({
+    fireAndForgetNotifyAndPush({
+      io: req.app.get('io'),
       userIds: [ownerId],
       title: 'New like',
       body: `${actorName} liked your post.`,
+      type: 'like',
       data: {
-        type: 'like',
         actorUserId: userId,
         postId: String(postId),
       },

@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const { validationResult } = require('express-validator');
 const User = require('../models/User');
+const Notification = require('../models/Notification');
 const { getFirebaseMessaging } = require('../services/firebaseAdmin');
 
 function handleValidation(req, res) {
@@ -37,6 +38,27 @@ function normalizeTokenArray(tokens) {
     if (token) unique.add(token);
   });
   return Array.from(unique);
+}
+
+function parsePaging(value, fallback, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  if (max) return Math.min(parsed, max);
+  return parsed;
+}
+
+function serializeNotification(item) {
+  return {
+    id: String(item._id),
+    title: String(item.title || ''),
+    body: String(item.body || ''),
+    type: String(item.type || 'system'),
+    screen: item.screen ? String(item.screen) : '',
+    data: item.data && typeof item.data === 'object' ? item.data : {},
+    read: Boolean(item.read),
+    readAt: item.readAt || null,
+    createdAt: item.createdAt,
+  };
 }
 
 async function getTokensForUser(userId) {
@@ -239,9 +261,94 @@ async function sendPushNotification(req, res) {
   });
 }
 
+async function listNotifications(req, res) {
+  const userId = req.user.id;
+  const page = parsePaging(req.query.page, 1);
+  const limit = parsePaging(req.query.limit, 30, 100);
+  const skip = (page - 1) * limit;
+
+  const query = { userId };
+  if (req.query.read === 'true') query.read = true;
+  if (req.query.read === 'false') query.read = false;
+
+  const [totalCount, notifications] = await Promise.all([
+    Notification.countDocuments(query),
+    Notification.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+  return res.status(200).json({
+    notifications: notifications.map(serializeNotification),
+    page,
+    totalPages,
+    totalCount,
+  });
+}
+
+async function markNotificationRead(req, res) {
+  const userId = req.user.id;
+  const { notificationId } = req.params;
+
+  if (!mongoose.isValidObjectId(notificationId)) {
+    return res.status(400).json({ error: 'Invalid notification id.' });
+  }
+
+  const updated = await Notification.findOneAndUpdate(
+    { _id: notificationId, userId },
+    { $set: { read: true, readAt: new Date() } },
+    { new: true },
+  ).lean();
+
+  if (!updated) {
+    return res.status(404).json({ error: 'Notification not found.' });
+  }
+
+  return res.status(200).json({ notification: serializeNotification(updated) });
+}
+
+async function markAllNotificationsRead(req, res) {
+  const userId = req.user.id;
+  const result = await Notification.updateMany(
+    { userId, read: false },
+    { $set: { read: true, readAt: new Date() } },
+  );
+
+  return res.status(200).json({
+    updated: result.modifiedCount || 0,
+  });
+}
+
+async function deleteNotification(req, res) {
+  const userId = req.user.id;
+  const { notificationId } = req.params;
+
+  if (!mongoose.isValidObjectId(notificationId)) {
+    return res.status(400).json({ error: 'Invalid notification id.' });
+  }
+
+  const deleted = await Notification.findOneAndDelete({
+    _id: notificationId,
+    userId,
+  }).lean();
+
+  if (!deleted) {
+    return res.status(404).json({ error: 'Notification not found.' });
+  }
+
+  return res.status(200).json({ deleted: true });
+}
+
 module.exports = {
   registerPushToken,
   unregisterPushToken,
   listMyPushTokens,
   sendPushNotification,
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
 };

@@ -9,7 +9,7 @@ const Profile = require('../models/Profile');
 const User = require('../models/User');
 const { uploadMediaBuffer } = require('../services/cloudinary');
 const { splitMedia, DEFAULT_SEGMENT_SECONDS } = require('../services/mediaSplit');
-const { fireAndForgetPush } = require('../services/pushNotify');
+const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -316,12 +316,13 @@ async function likeUcut(req, res) {
   const ownerId = ucut.userId?.toString();
   if (isNewLike && ownerId && ownerId !== userId) {
     const actorName = await resolveDisplayName(userId);
-    fireAndForgetPush({
+    fireAndForgetNotifyAndPush({
+      io: req.app.get('io'),
       userIds: [ownerId],
       title: 'New like',
       body: `${actorName} liked your UCut.`,
+      type: 'like',
       data: {
-        type: 'like',
         actorUserId: String(userId),
         ucutId: String(ucutId),
       },
@@ -407,12 +408,13 @@ async function addComment(req, res) {
   if (ownerId && ownerId !== userId) {
     const actorName = await resolveDisplayName(userId);
     const previewText = text.slice(0, 80);
-    fireAndForgetPush({
+    fireAndForgetNotifyAndPush({
+      io: req.app.get('io'),
       userIds: [ownerId],
       title: 'New comment',
       body: `${actorName}: ${previewText}`,
+      type: 'comment',
       data: {
-        type: 'comment',
         actorUserId: String(userId),
         ucutId: String(ucutId),
       },

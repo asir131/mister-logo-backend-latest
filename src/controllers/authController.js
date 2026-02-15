@@ -4,8 +4,10 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
 const { sendOtpEmail } = require('../services/emailService');
+const { getFirebaseAuth } = require('../services/firebaseAdmin');
 const generateOtp = require('../utils/generateOtp');
 const User = require('../models/User');
+const Profile = require('../models/Profile');
 const OtpToken = require('../models/OtpToken');
 const RefreshToken = require('../models/RefreshToken');
 
@@ -430,6 +432,106 @@ async function googleAuthSuccess(req, res) {
   }
 }
 
+function mapFirebaseProvider(signInProvider) {
+  if (signInProvider === 'google.com') return 'google';
+  if (signInProvider === 'facebook.com') return 'facebook';
+  return 'local';
+}
+
+async function firebaseLogin(req, res) {
+  const validationError = handleValidation(req, res);
+  if (validationError !== null) return;
+
+  const { idToken } = req.body;
+  try {
+    const firebaseAuth = getFirebaseAuth();
+    const decoded = await firebaseAuth.verifyIdToken(idToken, true);
+
+    const email = decoded?.email ? String(decoded.email).toLowerCase() : '';
+    if (!email) {
+      return res.status(400).json({ error: 'Firebase token has no email.' });
+    }
+
+    const signInProvider = decoded?.firebase?.sign_in_provider || '';
+    const provider = mapFirebaseProvider(signInProvider);
+    const identities = decoded?.firebase?.identities || {};
+    const googleIdentity = identities?.['google.com']?.[0] || null;
+    const facebookIdentity = identities?.['facebook.com']?.[0] || null;
+    const displayName =
+      req.body?.name || decoded?.name || email.split('@')[0] || 'User';
+    const phoneNumber = req.body?.phoneNumber || decoded?.phone_number || undefined;
+    const avatarUrl = req.body?.photoURL || decoded?.picture || undefined;
+    let isFirstLogin = false;
+
+    const orQuery = [{ email }];
+    if (googleIdentity) orQuery.push({ googleId: String(googleIdentity) });
+    if (facebookIdentity) orQuery.push({ facebookId: String(facebookIdentity) });
+
+    let user = await User.findOne({ $or: orQuery });
+
+    if (!user) {
+      isFirstLogin = true;
+      user = await User.create({
+        name: displayName,
+        email,
+        phoneNumber,
+        avatarUrl,
+        googleId: googleIdentity ? String(googleIdentity) : undefined,
+        facebookId: facebookIdentity ? String(facebookIdentity) : undefined,
+        authProvider: provider,
+      });
+    } else {
+      const updates = {};
+      if (displayName && user.name !== displayName) updates.name = displayName;
+      if (!user.phoneNumber && phoneNumber) updates.phoneNumber = phoneNumber;
+      if (avatarUrl && user.avatarUrl !== avatarUrl) updates.avatarUrl = avatarUrl;
+      if (provider !== 'local' && user.authProvider !== provider) {
+        updates.authProvider = provider;
+      }
+      if (googleIdentity && !user.googleId) updates.googleId = String(googleIdentity);
+      if (facebookIdentity && !user.facebookId) {
+        updates.facebookId = String(facebookIdentity);
+      }
+
+      if (Object.keys(updates).length > 0) {
+        user = await User.findByIdAndUpdate(user._id, { $set: updates }, { new: true });
+      }
+    }
+
+    const existingProfile = await Profile.findOne({ userId: user._id || user.id });
+    const needsProfileCompletion = !existingProfile;
+
+    if (existingProfile && avatarUrl && !existingProfile.profileImageUrl) {
+      await Profile.updateOne(
+        { _id: existingProfile._id },
+        { $set: { profileImageUrl: avatarUrl } }
+      );
+    }
+
+    const userObj = user?.toObject ? user.toObject() : user;
+    const token = issueToken(userObj);
+    const refreshToken = await issueRefreshToken(userObj._id || userObj.id);
+
+    return res.status(200).json({
+      message: 'Firebase login successful.',
+      user: sanitizeUser(userObj),
+      token,
+      refreshToken,
+      isFirstLogin,
+      needsProfileCompletion,
+    });
+  } catch (err) {
+    if (err?.code === 11000) {
+      return res.status(400).json({ error: 'Email or phone already registered.' });
+    }
+    if (err?.code && String(err.code).startsWith('auth/')) {
+      return res.status(401).json({ error: 'Invalid Firebase token.' });
+    }
+    console.error('Firebase login error:', err);
+    return res.status(500).json({ error: 'Could not login with Firebase token.' });
+  }
+}
+
 module.exports = {
   register,
   verifyOtp,
@@ -438,6 +540,7 @@ module.exports = {
   forgotPassword,
   verifyResetOtp,
   resetPassword,
+  firebaseLogin,
   buildAuthResponse,
   facebookAuthSuccess,
   googleAuthSuccess,

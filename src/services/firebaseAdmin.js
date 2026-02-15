@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 
+let adminModule = null;
+let adminApp = null;
 let messagingInstance = null;
+let authInstance = null;
 
 function readServiceAccountFromEnv() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
@@ -46,28 +49,30 @@ function readServiceAccountFromEnv() {
   return null;
 }
 
-function getFirebaseMessaging() {
-  if (messagingInstance) return messagingInstance;
-
-  let admin;
+function getFirebaseAdminModule() {
+  if (adminModule) return adminModule;
   try {
     // Lazy require keeps server bootable if firebase-admin is not installed yet.
     // eslint-disable-next-line global-require
-    admin = require('firebase-admin');
+    adminModule = require('firebase-admin');
   } catch (err) {
-    throw new Error(
-      'firebase-admin dependency missing. Run: npm i firebase-admin',
-    );
+    throw new Error('firebase-admin dependency missing. Run: npm i firebase-admin');
   }
+  return adminModule;
+}
 
+function getFirebaseAdminApp() {
+  if (adminApp) return adminApp;
+
+  const admin = getFirebaseAdminModule();
   if (admin.apps.length === 0) {
     const serviceAccount = readServiceAccountFromEnv();
     if (serviceAccount) {
-      admin.initializeApp({
+      adminApp = admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
     } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      admin.initializeApp({
+      adminApp = admin.initializeApp({
         credential: admin.credential.applicationDefault(),
       });
     } else {
@@ -75,12 +80,33 @@ function getFirebaseMessaging() {
         'Firebase credentials are missing. Set FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_SERVICE_ACCOUNT_BASE64, FIREBASE_SERVICE_ACCOUNT_PATH, or GOOGLE_APPLICATION_CREDENTIALS.',
       );
     }
+  } else {
+    adminApp = admin.app();
   }
 
-  messagingInstance = admin.messaging();
+  return adminApp;
+}
+
+function getFirebaseMessaging() {
+  if (messagingInstance) return messagingInstance;
+
+  const admin = getFirebaseAdminModule();
+  const app = getFirebaseAdminApp();
+  messagingInstance = admin.messaging(app);
   return messagingInstance;
 }
 
+function getFirebaseAuth() {
+  if (authInstance) return authInstance;
+
+  const admin = getFirebaseAdminModule();
+  const app = getFirebaseAdminApp();
+  authInstance = admin.auth(app);
+  return authInstance;
+}
+
 module.exports = {
+  getFirebaseAdminApp,
   getFirebaseMessaging,
+  getFirebaseAuth,
 };
