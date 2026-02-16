@@ -12,6 +12,88 @@ function parsePaging(value, fallback, max) {
   return parsed;
 }
 
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function getSuggestedArtists(req, res) {
+  const viewerId = req.user.id;
+  const limit = parsePaging(req.query.limit, 10, 30);
+  const viewerProfile = await Profile.findOne({ userId: viewerId })
+    .select('role')
+    .lean();
+  const viewerRole = String(viewerProfile?.role || '')
+    .trim()
+    .toLowerCase();
+
+  const following = await Follow.find({ followerId: viewerId })
+    .select('followingId')
+    .lean();
+
+  const excludedIds = [
+    new mongoose.Types.ObjectId(viewerId),
+    ...following
+      .map((row) => row?.followingId)
+      .filter(Boolean)
+      .map((id) =>
+        id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id),
+      ),
+  ];
+
+  const artists = await Profile.aggregate([
+    {
+      $match: {
+        userId: { $nin: excludedIds },
+        ...(viewerRole
+          ? { role: new RegExp(`^${escapeRegex(viewerRole)}$`, 'i') }
+          : {}),
+      },
+    },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'userId',
+        foreignField: '_id',
+        as: 'user',
+      },
+    },
+    { $unwind: '$user' },
+    {
+      $match: {
+        'user.isBlocked': { $ne: true },
+        'user.isBanned': { $ne: true },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        id: '$userId',
+        name: {
+          $ifNull: ['$displayName', '$user.name'],
+        },
+        role: '$role',
+        username: '$username',
+        profileImageUrl: '$profileImageUrl',
+        followersCount: { $ifNull: ['$followersCount', 0] },
+        postsCount: { $ifNull: ['$postsCount', 0] },
+      },
+    },
+    {
+      $sort: {
+        followersCount: -1,
+        postsCount: -1,
+        id: 1,
+      },
+    },
+    { $limit: limit },
+  ]);
+
+  return res.status(200).json({
+    artists,
+    totalCount: artists.length,
+  });
+}
+
 async function getUserOverview(req, res) {
   const { userId } = req.params;
 
@@ -182,6 +264,7 @@ async function getUserPosts(req, res) {
 }
 
 module.exports = {
+  getSuggestedArtists,
   getUserOverview,
   getUserPosts,
 };
