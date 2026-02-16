@@ -12,9 +12,19 @@ function parsePaging(value, fallback, max) {
   return parsed;
 }
 
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function getSuggestedArtists(req, res) {
   const viewerId = req.user.id;
   const limit = parsePaging(req.query.limit, 10, 30);
+  const viewerProfile = await Profile.findOne({ userId: viewerId })
+    .select('role')
+    .lean();
+  const viewerRole = String(viewerProfile?.role || '')
+    .trim()
+    .toLowerCase();
 
   const following = await Follow.find({ followerId: viewerId })
     .select('followingId')
@@ -34,6 +44,9 @@ async function getSuggestedArtists(req, res) {
     {
       $match: {
         userId: { $nin: excludedIds },
+        ...(viewerRole
+          ? { role: new RegExp(`^${escapeRegex(viewerRole)}$`, 'i') }
+          : {}),
       },
     },
     {
