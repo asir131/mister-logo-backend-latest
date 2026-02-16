@@ -438,16 +438,36 @@ function mapFirebaseProvider(signInProvider) {
   return 'local';
 }
 
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function findUserForFirebaseLogin({ email, googleIdentity, facebookIdentity }) {
+  const orQuery = [];
+  if (email) {
+    orQuery.push({ email });
+    orQuery.push({ email: new RegExp(`^${escapeRegex(email)}$`, 'i') });
+  }
+  if (googleIdentity) orQuery.push({ googleId: String(googleIdentity) });
+  if (facebookIdentity) orQuery.push({ facebookId: String(facebookIdentity) });
+  if (!orQuery.length) return null;
+  return User.findOne({ $or: orQuery });
+}
+
 async function firebaseLogin(req, res) {
   const validationError = handleValidation(req, res);
   if (validationError !== null) return;
 
   const { idToken } = req.body;
+  let email = '';
+  let googleIdentity = null;
+  let facebookIdentity = null;
+
   try {
     const firebaseAuth = getFirebaseAuth();
     const decoded = await firebaseAuth.verifyIdToken(idToken, true);
 
-    const email = decoded?.email ? String(decoded.email).toLowerCase() : '';
+    email = decoded?.email ? String(decoded.email).toLowerCase() : '';
     if (!email) {
       return res.status(400).json({ error: 'Firebase token has no email.' });
     }
@@ -455,46 +475,85 @@ async function firebaseLogin(req, res) {
     const signInProvider = decoded?.firebase?.sign_in_provider || '';
     const provider = mapFirebaseProvider(signInProvider);
     const identities = decoded?.firebase?.identities || {};
-    const googleIdentity = identities?.['google.com']?.[0] || null;
-    const facebookIdentity = identities?.['facebook.com']?.[0] || null;
+    googleIdentity = identities?.['google.com']?.[0] || null;
+    facebookIdentity = identities?.['facebook.com']?.[0] || null;
     const displayName =
       req.body?.name || decoded?.name || email.split('@')[0] || 'User';
     const phoneNumber = req.body?.phoneNumber || decoded?.phone_number || undefined;
     const avatarUrl = req.body?.photoURL || decoded?.picture || undefined;
     let isFirstLogin = false;
 
-    const orQuery = [{ email }];
-    if (googleIdentity) orQuery.push({ googleId: String(googleIdentity) });
-    if (facebookIdentity) orQuery.push({ facebookId: String(facebookIdentity) });
-
-    let user = await User.findOne({ $or: orQuery });
+    let user = await findUserForFirebaseLogin({
+      email,
+      googleIdentity,
+      facebookIdentity,
+    });
 
     if (!user) {
       isFirstLogin = true;
-      user = await User.create({
-        name: displayName,
-        email,
-        phoneNumber,
-        avatarUrl,
-        googleId: googleIdentity ? String(googleIdentity) : undefined,
-        facebookId: facebookIdentity ? String(facebookIdentity) : undefined,
-        authProvider: provider,
-      });
+      try {
+        user = await User.create({
+          name: displayName,
+          email,
+          phoneNumber,
+          avatarUrl,
+          googleId: googleIdentity ? String(googleIdentity) : undefined,
+          facebookId: facebookIdentity ? String(facebookIdentity) : undefined,
+          authProvider: provider,
+        });
+      } catch (err) {
+        if (err?.code !== 11000) throw err;
+        user = await findUserForFirebaseLogin({
+          email,
+          googleIdentity,
+          facebookIdentity,
+        });
+        if (!user) throw err;
+        isFirstLogin = false;
+      }
     } else {
       const updates = {};
       if (displayName && user.name !== displayName) updates.name = displayName;
-      if (!user.phoneNumber && phoneNumber) updates.phoneNumber = phoneNumber;
+      if (!user.phoneNumber && phoneNumber) {
+        const phoneTaken = await User.exists({
+          phoneNumber,
+          _id: { $ne: user._id },
+        });
+        if (!phoneTaken) updates.phoneNumber = phoneNumber;
+      }
       if (avatarUrl && user.avatarUrl !== avatarUrl) updates.avatarUrl = avatarUrl;
       if (provider !== 'local' && user.authProvider !== provider) {
         updates.authProvider = provider;
       }
-      if (googleIdentity && !user.googleId) updates.googleId = String(googleIdentity);
+      if (googleIdentity && !user.googleId) {
+        const googleIdValue = String(googleIdentity);
+        const googleTaken = await User.exists({
+          googleId: googleIdValue,
+          _id: { $ne: user._id },
+        });
+        if (!googleTaken) updates.googleId = googleIdValue;
+      }
       if (facebookIdentity && !user.facebookId) {
-        updates.facebookId = String(facebookIdentity);
+        const facebookIdValue = String(facebookIdentity);
+        const facebookTaken = await User.exists({
+          facebookId: facebookIdValue,
+          _id: { $ne: user._id },
+        });
+        if (!facebookTaken) updates.facebookId = facebookIdValue;
       }
 
       if (Object.keys(updates).length > 0) {
-        user = await User.findByIdAndUpdate(user._id, { $set: updates }, { new: true });
+        try {
+          user = await User.findByIdAndUpdate(user._id, { $set: updates }, { new: true });
+        } catch (err) {
+          if (err?.code !== 11000) throw err;
+          user = await findUserForFirebaseLogin({
+            email,
+            googleIdentity,
+            facebookIdentity,
+          });
+          if (!user) throw err;
+        }
       }
     }
 
@@ -522,7 +581,32 @@ async function firebaseLogin(req, res) {
     });
   } catch (err) {
     if (err?.code === 11000) {
-      return res.status(400).json({ error: 'Email or phone already registered.' });
+      try {
+        const recoveredUser = await findUserForFirebaseLogin({
+          email,
+          googleIdentity,
+          facebookIdentity,
+        });
+        if (recoveredUser) {
+          const existingProfile = await Profile.findOne({
+            userId: recoveredUser._id || recoveredUser.id,
+          });
+          const userObj = recoveredUser?.toObject ? recoveredUser.toObject() : recoveredUser;
+          const token = issueToken(userObj);
+          const refreshToken = await issueRefreshToken(userObj._id || userObj.id);
+          return res.status(200).json({
+            message: 'Firebase login successful.',
+            user: sanitizeUser(userObj),
+            token,
+            refreshToken,
+            isFirstLogin: false,
+            needsProfileCompletion: !existingProfile,
+          });
+        }
+      } catch (recoverErr) {
+        console.error('Firebase duplicate recovery error:', recoverErr);
+      }
+      return res.status(400).json({ error: 'Could not login with Firebase token.' });
     }
     if (err?.code && String(err.code).startsWith('auth/')) {
       return res.status(401).json({ error: 'Invalid Firebase token.' });
