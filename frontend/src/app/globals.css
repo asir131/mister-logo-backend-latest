@@ -677,6 +677,83 @@ textarea {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.suggested-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.suggested-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(18, 17, 23, 0.04);
+}
+
+.suggested-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(18, 17, 23, 0.08);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+}
+
+.suggested-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.suggested-info {
+  display: grid;
+  gap: 4px;
+}
+
+.suggested-name {
+  font-weight: 600;
+}
+
+.suggested-handle {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.suggested-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.suggested-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .suggested-card {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+  .suggested-actions {
+    justify-content: flex-start;
+  }
+}
 .story-strip {
   display: grid;
   grid-auto-flow: column;
@@ -999,3 +1076,4 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+

@@ -42,6 +42,10 @@ export default function FeedPage() {
   const [ucuts, setUcuts] = useState([]);
   const [ucutLoading, setUcutLoading] = useState(false);
   const [ucutError, setUcutError] = useState(null);
+  const [suggestedArtists, setSuggestedArtists] = useState([]);
+  const [suggestedLoading, setSuggestedLoading] = useState(false);
+  const [suggestedError, setSuggestedError] = useState(null);
+  const [suggestedFollowing, setSuggestedFollowing] = useState([]);
   const [activeStoryOwner, setActiveStoryOwner] = useState(null);
   const [activeOwnerIndex, setActiveOwnerIndex] = useState(0);
   const [activeStoryIndex, setActiveStoryIndex] = useState(0);
@@ -69,6 +73,11 @@ export default function FeedPage() {
     "Loading feed",
     "Fetching more posts...",
     "Load more posts",
+    "Suggested artists",
+    "Loading suggested artists...",
+    "No suggested artists yet.",
+    "Follow",
+    "View",
     "Status",
   ];
   const { t } = useTranslations(labels);
@@ -86,6 +95,7 @@ export default function FeedPage() {
 
     loadFeed(1, true);
     loadUcuts();
+    loadSuggestedArtists();
   }, [router]);
 
   async function loadFeed(page, replace) {
@@ -133,7 +143,40 @@ export default function FeedPage() {
     setUcuts(result.data.ucuts || []);
     setUcutLoading(false);
   }
+  async function loadSuggestedArtists() {
+    setSuggestedLoading(true);
+    setSuggestedError(null);
+    const result = await apiRequest({
+      path: "/api/users/suggested-artists?limit=8",
+      method: "GET",
+      token: auth.token,
+    });
+    if (!result.ok) {
+      setSuggestedError(result.data?.error || "Failed to load suggested artists.");
+      setSuggestedLoading(false);
+      return;
+    }
+    setSuggestedArtists(result.data.artists || []);
+    setSuggestedLoading(false);
+  }
 
+  async function handleFollowSuggested(artistId) {
+    if (!auth.token || !artistId) return;
+    if (suggestedFollowing.includes(artistId)) return;
+    setSuggestedFollowing((prev) => [...prev, artistId]);
+    const result = await apiRequest({
+      path: "/api/follows",
+      method: "POST",
+      body: { userId: artistId },
+      token: auth.token,
+    });
+    setSuggestedFollowing((prev) => prev.filter((id) => id !== artistId));
+    if (!result.ok) {
+      setSuggestedError(result.data?.error || "Failed to follow artist.");
+      return;
+    }
+    setSuggestedArtists((prev) => prev.filter((artist) => (artist.id || artist._id) !== artistId));
+  }
   const stories = useMemo(() => {
     const byOwner = new Map();
     ucuts.forEach((ucut) => {
@@ -650,6 +693,57 @@ export default function FeedPage() {
           </div>
         )}
       </section>
+      <section className="card">
+        <div className="card-header">
+          <h2>{t("Suggested artists")}</h2>
+          <span className="muted">{suggestedArtists.length} total</span>
+        </div>
+        {suggestedError && <p className="error">{suggestedError}</p>}
+        {suggestedLoading && <p>{t("Loading suggested artists...")}</p>}
+        {!suggestedLoading && suggestedArtists.length === 0 && !suggestedError && (
+          <p>{t("No suggested artists yet.")}</p>
+        )}
+        {suggestedArtists.length > 0 && (
+          <div className="suggested-grid">
+            {suggestedArtists.map((artist) => {
+              const artistId = artist.id || artist._id;
+              const displayName = artist.name || artist.username || "Artist";
+              return (
+                <div className="suggested-card" key={artistId}>
+                  <div className="suggested-avatar">
+                    {artist.profileImageUrl ? (
+                      <img src={artist.profileImageUrl} alt={displayName} />
+                    ) : (
+                      <span>{displayName[0] || "A"}</span>
+                    )}
+                  </div>
+                  <div className="suggested-info">
+                    <div className="suggested-name">{displayName}</div>
+                    {artist.username && <div className="suggested-handle">@{artist.username}</div>}
+                    <div className="suggested-stats">
+                      <span>{artist.followersCount || 0} followers</span>
+                      <span>{artist.postsCount || 0} posts</span>
+                    </div>
+                  </div>
+                  <div className="suggested-actions">
+                    <Link className="btn ghost" href={`/users/${artistId}`}>
+                      {t("View")}
+                    </Link>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => handleFollowSuggested(artistId)}
+                      disabled={suggestedFollowing.includes(artistId)}
+                    >
+                      {t("Follow")}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
       <CreatePostForm
         form={form}
         onChange={(event) => {
@@ -834,9 +928,12 @@ export default function FeedPage() {
           }
           if (action === "ucuts") {
             loadUcuts();
+    loadSuggestedArtists();
           }
         }}
       />
     </PageShell>
   );
 }
+
+
