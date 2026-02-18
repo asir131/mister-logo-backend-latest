@@ -178,7 +178,7 @@ io.on("connection", (socket) => {
 app.set("io", io);
 connectDB()
   .then(() => {
-    startUblastJobs();
+    startUblastJobs(io);
     startPostScheduler();
     server.listen(PORT, () => {
       // Simple startup log for visibility
@@ -190,3 +190,4 @@ connectDB()
     console.error("Failed to connect to database:", err);
     process.exit(1);
   });
+

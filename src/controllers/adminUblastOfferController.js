@@ -2,6 +2,40 @@ const mongoose = require('mongoose');
 
 const UBlast = require('../models/UBlast');
 const UblastOffer = require('../models/UblastOffer');
+const User = require('../models/User');
+const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
+
+
+async function notifyUblastUsers(io, ublast, event = 'released', targetUserIds = []) {
+  if (!io || !ublast) return;
+
+  const ids = Array.isArray(targetUserIds) && targetUserIds.length
+    ? targetUserIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : (await User.find({ isBanned: { $ne: true } }).select('_id').lean())
+        .map((user) => String(user._id));
+
+  if (!ids.length) return;
+
+  const heading = event === 'released' ? 'New UBlast Is Live' : 'New UBlast Created';
+  const body =
+    ublast?.title && String(ublast.title).trim().length
+      ? `Admin posted: ${String(ublast.title).trim()}`
+      : 'Admin posted a new UBlast.';
+
+  fireAndForgetNotifyAndPush({
+    io,
+    userIds: ids,
+    title: heading,
+    body,
+    type: 'ublast',
+    screen: '/(tabs)/trending',
+    data: {
+      type: 'ublast',
+      ublastId: String(ublast._id),
+      event,
+    },
+  });
+}
 
 function requireObjectId(value) {
   return mongoose.isValidObjectId(value);
@@ -38,6 +72,11 @@ async function createRewardUblast(req, res) {
     targetUserId: userId,
     rewardType: 'reward',
     rewardLabel: 'Reward UBlast from Admin',
+  });
+
+  const io = req.app?.get('io');
+  notifyUblastUsers(io, reward, 'released', [userId]).catch((err) => {
+    console.error('Reward UBlast broadcast failed:', err?.message || err);
   });
 
   return res.status(201).json({ ublast: reward });
@@ -91,6 +130,11 @@ async function createOffer(req, res) {
     currency: currency || 'usd',
     createdBy: req.user?.id,
     expiresAt,
+  });
+
+  const io = req.app?.get('io');
+  notifyUblastUsers(io, offerUblast, 'released', [userId]).catch((err) => {
+    console.error('Offer UBlast broadcast failed:', err?.message || err);
   });
 
   return res.status(201).json({ offer, ublast: offerUblast });
@@ -245,3 +289,7 @@ module.exports = {
   listOffers,
   listRewardedUblasts,
 };
+
+
+
+

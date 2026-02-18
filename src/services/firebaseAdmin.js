@@ -6,6 +6,26 @@ let adminApp = null;
 let messagingInstance = null;
 let authInstance = null;
 
+function readJsonFile(filePath, invalidMessage) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (err) {
+    throw new Error(invalidMessage);
+  }
+}
+
+function resolvePathCandidates(rawPath) {
+  const trimmed = String(rawPath || '').trim();
+  if (!trimmed) return [];
+
+  if (path.isAbsolute(trimmed)) return [trimmed];
+
+  return [
+    path.resolve(process.cwd(), trimmed),
+    path.resolve(__dirname, '..', '..', trimmed),
+  ];
+}
+
 function readServiceAccountFromEnv() {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     try {
@@ -29,21 +49,16 @@ function readServiceAccountFromEnv() {
 
   if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
     const rawPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH.trim();
-    const resolvedPath = path.isAbsolute(rawPath)
-      ? rawPath
-      : path.resolve(process.cwd(), rawPath);
+    const candidates = resolvePathCandidates(rawPath);
+    const resolvedPath = candidates.find((candidate) => fs.existsSync(candidate));
 
-    if (!fs.existsSync(resolvedPath)) {
+    if (!resolvedPath) {
       throw new Error(
-        `FIREBASE_SERVICE_ACCOUNT_PATH not found: ${resolvedPath}`,
+        `FIREBASE_SERVICE_ACCOUNT_PATH not found: ${candidates[0] || rawPath}`,
       );
     }
 
-    try {
-      return JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
-    } catch (err) {
-      throw new Error('Invalid JSON in FIREBASE_SERVICE_ACCOUNT_PATH file.');
-    }
+    return readJsonFile(resolvedPath, 'Invalid JSON in FIREBASE_SERVICE_ACCOUNT_PATH file.');
   }
 
   return null;
@@ -61,6 +76,21 @@ function getFirebaseAdminModule() {
   return adminModule;
 }
 
+function getGoogleCredentialsFromEnvFile() {
+  const rawPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!rawPath) return null;
+
+  const candidates = resolvePathCandidates(rawPath);
+  const resolvedPath = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!resolvedPath) {
+    throw new Error(
+      `GOOGLE_APPLICATION_CREDENTIALS file not found: ${candidates[0] || rawPath}`,
+    );
+  }
+
+  return readJsonFile(resolvedPath, 'Invalid JSON in GOOGLE_APPLICATION_CREDENTIALS file.');
+}
+
 function getFirebaseAdminApp() {
   if (adminApp) return adminApp;
 
@@ -72,8 +102,9 @@ function getFirebaseAdminApp() {
         credential: admin.credential.cert(serviceAccount),
       });
     } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      const googleServiceAccount = getGoogleCredentialsFromEnvFile();
       adminApp = admin.initializeApp({
-        credential: admin.credential.applicationDefault(),
+        credential: admin.credential.cert(googleServiceAccount),
       });
     } else {
       throw new Error(
