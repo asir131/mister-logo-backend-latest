@@ -73,9 +73,12 @@ function fireAndForgetNotifyAndPush({
   type = 'system',
   data = {},
   screen = '',
+  skipPushUserIds = [],
 }) {
   const recipients = normalizeUserIds(userIds);
   if (!recipients.length) return;
+
+  const skipPushSet = new Set(normalizeUserIds(skipPushUserIds));
 
   saveNotifications({
     userIds: recipients,
@@ -92,8 +95,11 @@ function fireAndForgetNotifyAndPush({
       console.error('Save notification failed:', err?.message || err);
     });
 
+  const pushRecipients = recipients.filter((id) => !skipPushSet.has(id));
+  if (!pushRecipients.length) return;
+
   fireAndForgetPush({
-    userIds: recipients,
+    userIds: pushRecipients,
     title,
     body,
     data: {

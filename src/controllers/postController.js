@@ -44,6 +44,24 @@ function resolveUploadResourceType(mediaType) {
   return 'auto';
 }
 
+function toPlayableCloudinaryVideoUrl(url) {
+  if (!url || typeof url !== 'string') return url;
+  if (!url.includes('/res.cloudinary.com/') || !url.includes('/video/upload/')) {
+    return url;
+  }
+  if (url.includes('/video/upload/f_mp4,') || url.includes('/video/upload/f_mp4/')) {
+    return url;
+  }
+  return url.replace(
+    '/video/upload/',
+    '/video/upload/f_mp4,vc_h264,ac_aac,q_auto:good/'
+  );
+}
+
+function normalizeMediaUrlForPlayback(mediaUrl, mediaType) {
+  if (mediaType !== 'video') return mediaUrl;
+  return toPlayableCloudinaryVideoUrl(mediaUrl);
+}
 function parseScheduledFor(value) {
   if (!value) return null;
   const parsed = new Date(value);
@@ -129,6 +147,19 @@ function normalizeShareTarget(value) {
   return target;
 }
 
+function isBlockedUntil(dateValue) {
+  if (!dateValue) return false;
+  return new Date(dateValue).getTime() > Date.now();
+}
+
+function isUserUblastIneligible(user) {
+  if (!user) return true;
+  if (user.isBlocked || user.isBanned) return true;
+  if (user.ublastManualBlocked) return true;
+  if (isBlockedUntil(user.ublastBlockedUntil)) return true;
+  return false;
+}
+
 async function enforceUblastShareRequirement(userId) {
   const now = new Date();
   const activeUblasts = await UBlast.find({
@@ -203,7 +234,7 @@ async function createPost(req, res) {
     return res.status(400).json({ error: 'UClips must be video only.' });
   }
 
-  let resolvedMediaUrl = mediaUrl;
+  let resolvedMediaUrl = normalizeMediaUrlForPlayback(mediaUrl, mediaType);
 
   if (!mediaType) {
     return res.status(400).json({ error: 'Unsupported media type.' });
@@ -232,7 +263,7 @@ async function createPost(req, res) {
         folder: 'mister/posts',
         resource_type: resolveUploadResourceType(mediaType),
       });
-      resolvedMediaUrl = uploadResult.secure_url || uploadResult.url;
+      resolvedMediaUrl = normalizeMediaUrlForPlayback(uploadResult.secure_url || uploadResult.url, mediaType);
     }
 
     const isScheduled = Boolean(scheduledForInput);
@@ -457,7 +488,7 @@ async function updatePost(req, res) {
         resource_type: resolveUploadResourceType(mediaType),
       });
       updates.mediaType = mediaType;
-      updates.mediaUrl = uploadResult.secure_url || uploadResult.url;
+      updates.mediaUrl = normalizeMediaUrlForPlayback(uploadResult.secure_url || uploadResult.url, mediaType);
       updates.mediaPublicId = uploadResult.public_id;
       updates.mimeType = req.file.mimetype;
       updates.size = req.file.size;
@@ -553,6 +584,20 @@ async function sharePostInternal({ userId, postId, target }) {
   const source = await Post.findById(postId).lean();
   if (!source) {
     return { status: 404, error: 'Post not found.' };
+  }
+
+  const isUblastOrigin =
+    Boolean(source?.ublastId) || String(source?.postType || '').toLowerCase() === 'ublast';
+  if (isUblastOrigin) {
+    const user = await User.findById(userId)
+      .select('ublastBlockedUntil ublastManualBlocked isBlocked isBanned')
+      .lean();
+    if (!user) {
+      return { status: 404, error: 'User not found.' };
+    }
+    if (isUserUblastIneligible(user)) {
+      return { status: 403, error: 'You are not eligible to share UBlast now.' };
+    }
   }
 
   if (
@@ -839,7 +884,7 @@ async function updateScheduledPost(req, res) {
       resource_type: resolveUploadResourceType(mediaType),
     });
     updates.mediaType = mediaType;
-    updates.mediaUrl = uploadResult.secure_url || uploadResult.url;
+    updates.mediaUrl = normalizeMediaUrlForPlayback(uploadResult.secure_url || uploadResult.url, mediaType);
     updates.mediaPublicId = uploadResult.public_id;
     updates.mimeType = req.file.mimetype;
     updates.size = req.file.size;
@@ -1459,7 +1504,27 @@ async function getPostById(req, res) {
     return res.status(404).json({ error: 'Post not found.' });
   }
 
-  return res.status(200).json({ post });
+  let postWithDueAt = post;
+  if (post?.ublastId && mongoose.isValidObjectId(post.ublastId)) {
+    const ublast = await UBlast.findById(post.ublastId)
+      .select('releasedAt createdAt')
+      .lean();
+
+    if (ublast) {
+      const releasedAt = ublast.releasedAt || ublast.createdAt;
+      if (releasedAt) {
+        const shareWindowHours = Number(process.env.UBLAST_SHARE_WINDOW_HOURS || 48);
+        postWithDueAt = {
+          ...post,
+          dueAt: new Date(
+            new Date(releasedAt).getTime() + shareWindowHours * 60 * 60 * 1000,
+          ),
+        };
+      }
+    }
+  }
+
+  return res.status(200).json({ post: postWithDueAt });
 }
 
 async function deleteCancelledScheduledPost(req, res) {

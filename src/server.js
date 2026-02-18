@@ -52,6 +52,7 @@ const allowedOrigins = process.env.CORS_ORIGINS
       "http://localhost:5173",
       "https://ungustatory-erringly-ralph.ngrok-free.dev",
       "https://mister-logo-dashboard-vuek.vercel.app",
+      
     ];
 app.use(
   cors({
