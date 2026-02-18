@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const Post = require('../models/Post');
+const UBlast = require('../models/UBlast');
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
@@ -14,6 +15,7 @@ async function getFeed(req, res) {
   const page = parsePaging(req.query.page, 1);
   const limit = parsePaging(req.query.limit, 5, 20);
   const skip = (page - 1) * limit;
+  const shareWindowHours = Number(process.env.UBLAST_SHARE_WINDOW_HOURS || 48);
 
   const visibilityMatch = {
     $and: [
@@ -178,10 +180,46 @@ async function getFeed(req, res) {
     ]),
   ]);
 
+  const ublastIds = [
+    ...new Set(
+      posts
+        .map((post) => post?.ublastId)
+        .filter(Boolean)
+        .map((id) => String(id))
+        .filter((id) => mongoose.isValidObjectId(id)),
+    ),
+  ];
+
+  let postsWithDueAt = posts;
+  if (ublastIds.length > 0) {
+    const ublasts = await UBlast.find({ _id: { $in: ublastIds } })
+      .select('_id releasedAt createdAt')
+      .lean();
+    const byId = new Map(ublasts.map((u) => [String(u._id), u]));
+
+    postsWithDueAt = posts.map((post) => {
+      const ublastId = post?.ublastId ? String(post.ublastId) : null;
+      if (!ublastId) return post;
+
+      const ublast = byId.get(ublastId);
+      if (!ublast) return post;
+
+      const releasedAt = ublast.releasedAt || ublast.createdAt;
+      if (!releasedAt) return post;
+
+      return {
+        ...post,
+        dueAt: new Date(
+          new Date(releasedAt).getTime() + shareWindowHours * 60 * 60 * 1000,
+        ),
+      };
+    });
+  }
+
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
 
   return res.status(200).json({
-    posts,
+    posts: postsWithDueAt,
     page,
     totalPages,
     totalCount,

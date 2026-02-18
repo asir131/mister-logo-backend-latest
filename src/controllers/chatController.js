@@ -39,14 +39,6 @@ async function getMutualFollowIds(userId) {
   return mutual.map((entry) => entry.followerId.toString());
 }
 
-async function ensureMutualFollow(userId, otherUserId) {
-  const [follows, followedBy] = await Promise.all([
-    Follow.exists({ followerId: userId, followingId: otherUserId }),
-    Follow.exists({ followerId: otherUserId, followingId: userId }),
-  ]);
-  return Boolean(follows && followedBy);
-}
-
 function pickName(user, profile) {
   return (
     profile?.displayName ||
@@ -63,7 +55,6 @@ function getDeletedAtForUser(conversation, userId) {
   );
   return entry?.deletedAt ? new Date(entry.deletedAt) : null;
 }
-
 async function resolveDisplayName(userId) {
   const [user, profile] = await Promise.all([
     User.findById(userId).select('name').lean(),
@@ -237,10 +228,7 @@ async function getConversation(req, res) {
     return res.status(400).json({ error: 'Cannot chat with yourself.' });
   }
 
-  const [otherUser, mutual] = await Promise.all([
-    User.findById(otherUserId).select('name').lean(),
-    ensureMutualFollow(userId, otherUserId),
-  ]);
+  const otherUser = await User.findById(otherUserId).select('name').lean();
 
   if (!otherUser) {
     return res.status(404).json({ error: 'User not found.' });
@@ -256,9 +244,6 @@ async function getConversation(req, res) {
   const conversation = await Conversation.findOne({ pairKey }).lean();
 
   if (!conversation) {
-    if (!mutual) {
-      return res.status(403).json({ error: 'Chat available only for mutual follows.' });
-    }
     return res.status(200).json({
       conversationId: null,
       participant: {
@@ -430,6 +415,9 @@ async function sendMessage(req, res) {
   }
 
   const senderName = await resolveDisplayName(userId);
+  const onlineUserIds = getOnlineUserIds();
+  const recipientIsOnline = onlineUserIds.has(String(otherUserId));
+
   fireAndForgetNotifyAndPush({
     io: req.app.get('io'),
     userIds: [otherUserId],
@@ -441,6 +429,7 @@ async function sendMessage(req, res) {
       conversationId: String(conversation._id),
     },
     screen: `/screens/chat/chat-screen?userId=${userId}`,
+    skipPushUserIds: recipientIsOnline ? [otherUserId] : [],
   });
 
   return res.status(201).json({ message, conversationId: conversation._id });
@@ -457,10 +446,6 @@ async function markConversationRead(req, res) {
   const pairKey = makePairKey(userId, otherUserId);
   const conversation = await Conversation.findOne({ pairKey }).lean();
   if (!conversation) {
-    const mutual = await ensureMutualFollow(userId, otherUserId);
-    if (!mutual) {
-      return res.status(403).json({ error: 'Chat available only for mutual follows.' });
-    }
     return res.status(200).json({ updated: 0 });
   }
 
@@ -575,3 +560,7 @@ module.exports = {
   blockUser,
   unblockUser,
 };
+
+
+
+

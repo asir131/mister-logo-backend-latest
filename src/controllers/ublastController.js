@@ -135,7 +135,7 @@ async function submitUblast(req, res) {
   }
 
   const user = await User.findById(userId)
-    .select('ublastBlockedUntil isBlocked isBanned')
+    .select('ublastBlockedUntil isBlocked isBanned ublastManualBlocked')
     .lean();
   if (!user) {
     return res.status(404).json({ error: 'User not found.' });
@@ -208,7 +208,7 @@ async function shareUblast(req, res) {
 async function shareUblastInternal({ userId, ublastId, shareType }) {
   const now = new Date();
   const user = await User.findById(userId)
-    .select('ublastBlockedUntil isBlocked isBanned')
+    .select('ublastBlockedUntil isBlocked isBanned ublastManualBlocked')
     .lean();
   if (!user) {
     return { status: 404, error: 'User not found.' };
@@ -315,7 +315,7 @@ async function submitUblastRequest(req, res) {
   }
 
   const user = await User.findById(userId)
-    .select('ublastBlockedUntil isBlocked isBanned')
+    .select('ublastBlockedUntil isBlocked isBanned ublastManualBlocked')
     .lean();
   if (!user) {
     return res.status(404).json({ error: 'User not found.' });
@@ -395,6 +395,16 @@ async function updateSubmission(req, res) {
     return res.status(400).json({ error: 'Invalid submission id.' });
   }
 
+  const user = await User.findById(userId)
+    .select('ublastBlockedUntil isBlocked isBanned ublastManualBlocked')
+    .lean();
+  if (!user) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+  if (isUserIneligible(user)) {
+    return res.status(403).json({ error: 'You are blocked from UBlast submissions.' });
+  }
+
   const submission = await UBlastSubmission.findOne({
     _id: submissionId,
     userId,
@@ -452,3 +462,4 @@ module.exports = {
   shareUblast,
   shareUblastInternal,
 };
+

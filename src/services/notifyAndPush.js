@@ -73,9 +73,16 @@ function fireAndForgetNotifyAndPush({
   type = 'system',
   data = {},
   screen = '',
+  skipPushUserIds = [],
 }) {
   const recipients = normalizeUserIds(userIds);
   if (!recipients.length) return;
+
+  const skipPushSet = new Set(normalizeUserIds(skipPushUserIds));
+
+  if (String(type || '').toLowerCase() === 'ublast') {
+    console.log('[NotifyAndPush][ublast] enqueue recipients=' + recipients.length);
+  }
 
   saveNotifications({
     userIds: recipients,
@@ -87,13 +94,19 @@ function fireAndForgetNotifyAndPush({
   })
     .then((notifications) => {
       emitNotifications(io, notifications);
+      if (String(type || '').toLowerCase() === 'ublast') {
+        console.log('[NotifyAndPush][ublast] saved=' + notifications.length + ' emitted=' + notifications.length);
+      }
     })
     .catch((err) => {
       console.error('Save notification failed:', err?.message || err);
     });
 
+  const pushRecipients = recipients.filter((id) => !skipPushSet.has(id));
+  if (!pushRecipients.length) return;
+
   fireAndForgetPush({
-    userIds: recipients,
+    userIds: pushRecipients,
     title,
     body,
     data: {
@@ -109,3 +122,5 @@ module.exports = {
   emitNotifications,
   fireAndForgetNotifyAndPush,
 };
+
+

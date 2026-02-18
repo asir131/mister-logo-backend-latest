@@ -10,6 +10,7 @@ const Comment = require('../models/Comment');
 const User = require('../models/User');
 const UblastOffer = require('../models/UblastOffer');
 const { uploadMediaBuffer } = require('../services/cloudinary');
+const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 function handleValidation(req, res) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -26,6 +27,33 @@ function detectMediaType(mimetype) {
   return null;
 }
 
+async function broadcastAdminUblast(io, ublast, event = 'created') {
+  if (!io || !ublast) return;
+
+  const users = await User.find({ isBanned: { $ne: true } }).select('_id').lean();
+  const userIds = users.map((user) => String(user._id)).filter(Boolean);
+  if (!userIds.length) return;
+
+  const heading = event === 'released' ? 'New UBlast Is Live' : 'New UBlast Created';
+  const body =
+    ublast?.title && String(ublast.title).trim().length
+      ? `Admin posted: ${String(ublast.title).trim()}`
+      : 'Admin posted a new UBlast.';
+
+  fireAndForgetNotifyAndPush({
+    io,
+    userIds,
+    title: heading,
+    body,
+    type: 'ublast',
+    screen: '/(tabs)/trending',
+    data: {
+      type: 'ublast',
+      ublastId: String(ublast._id),
+      event,
+    },
+  });
+}
 async function createUblast(req, res) {
   const validationError = handleValidation(req, res);
   if (validationError !== null) return;
@@ -47,17 +75,34 @@ async function createUblast(req, res) {
   }
 
   const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
-  const status = scheduledDate ? 'scheduled' : 'draft';
+  const shareWindowHours = Number(process.env.UBLAST_SHARE_WINDOW_HOURS || 48);
+  const isScheduled = Boolean(scheduledDate);
+  const now = new Date();
 
-  const created = await UBlast.create({
+  const createPayload = {
     title,
     content,
     mediaUrl,
     mediaType,
-    status,
+    status: isScheduled ? 'scheduled' : 'released',
     scheduledFor: scheduledDate || undefined,
     createdBy: req.user?.id,
-  });
+  };
+
+  if (!isScheduled) {
+    createPayload.releasedAt = now;
+    createPayload.topExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    createPayload.expiresAt = new Date(now.getTime() + shareWindowHours * 60 * 60 * 1000);
+  }
+
+  const created = await UBlast.create(createPayload);
+
+  if (!isScheduled) {
+    const io = req.app?.get('io');
+    broadcastAdminUblast(io, created, 'released').catch((err) => {
+      console.error('Admin UBlast create broadcast failed:', err?.message || err);
+    });
+  }
 
   return res.status(201).json({ ublast: created });
 }
@@ -90,6 +135,11 @@ async function releaseUblast(req, res) {
   if (!updated) {
     return res.status(404).json({ error: 'UBlast not found.' });
   }
+
+  const io = req.app?.get('io');
+  broadcastAdminUblast(io, updated, 'released').catch((err) => {
+    console.error('Admin UBlast release broadcast failed:', err?.message || err);
+  });
 
   return res.status(200).json({ ublast: updated });
 }
@@ -380,6 +430,17 @@ async function reviewSubmission(req, res) {
     }
   }
 
+
+  if (status === 'approved' && updated.approvedUblastId) {
+    const io = req.app?.get('io');
+    const releasedUblast = await UBlast.findById(updated.approvedUblastId);
+    if (releasedUblast) {
+      broadcastAdminUblast(io, releasedUblast, 'released').catch((err) => {
+        console.error('Submission approval UBlast broadcast failed:', err?.message || err);
+      });
+    }
+  }
+
   return res.status(200).json({ submission: updated });
 }
 
@@ -591,3 +652,9 @@ module.exports = {
   updateUblast,
   deleteUblast,
 };
+
+
+
+
+
+
