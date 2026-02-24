@@ -42,7 +42,7 @@ const supportRoutes = require("./routes/supportRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const { startUblastJobs } = require("./jobs/ublastScheduler");
 const { startPostScheduler } = require("./jobs/postScheduler");
-const { sharePage } = require("./controllers/sharePageController");
+const { sharePage, shareXLink } = require("./controllers/sharePageController");
 
 const app = express();
 const server = http.createServer(app);
@@ -107,6 +107,7 @@ app.get("/health", (req, res) => {
 
 // Public share page (Open Graph preview)
 app.get("/share/:postId", sharePage);
+app.get("/share/x/:postId", shareXLink);
 
 // Global error handler fallback
 // eslint-disable-next-line no-unused-vars

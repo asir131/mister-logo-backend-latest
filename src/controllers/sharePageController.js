@@ -69,7 +69,9 @@ async function sharePage(req, res) {
         : ''
     }
     <meta name="twitter:card" content="summary_large_image" />
-    ${escapedMediaUrl && !isVideo ? `<meta name="twitter:image" content="${escapedMediaUrl}" />` : ''}
+    <meta name="twitter:title" content="${escapedTitle}" />
+    <meta name="twitter:description" content="${escapedDescription}" />
+    ${escapedMediaUrl ? `<meta name="twitter:image" content="${escapedMediaUrl}" />` : ''}
   </head>
   <body>
     <p>Shared from UNAP</p>
@@ -83,4 +85,18 @@ async function sharePage(req, res) {
 
 module.exports = {
   sharePage,
+  async shareXLink(req, res) {
+    try {
+      const { postId } = req.params;
+      const post = await Post.findById(postId).select("_id").lean();
+      if (!post) {
+        return res.status(404).json({ error: "Not found" });
+      }
+      const shareUrl = buildShareUrl(req, post._id);
+      return res.status(200).json({ shareUrl });
+    } catch (err) {
+      console.error("Share link error:", err);
+      return res.status(500).json({ error: "Could not generate share URL." });
+    }
+  },
 };
