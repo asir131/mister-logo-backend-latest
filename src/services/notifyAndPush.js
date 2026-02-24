@@ -1,4 +1,7 @@
+const mongoose = require('mongoose');
+
 const Notification = require('../models/Notification');
+const Profile = require('../models/Profile');
 const { fireAndForgetPush } = require('./pushNotify');
 
 function normalizeUserIds(userIds) {
@@ -30,6 +33,55 @@ function serializeNotification(doc) {
     readAt: doc.readAt || null,
     createdAt: doc.createdAt,
   };
+}
+
+function extractActorIds(data) {
+  const payload = toObjectData(data);
+  const maybeIds = [payload.actorUserId, payload.senderId]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+
+  return Array.from(
+    new Set(maybeIds.filter((id) => mongoose.isValidObjectId(id))),
+  );
+}
+
+async function enrichNotificationData(data) {
+  const payload = toObjectData(data);
+
+  const existingProfileImageUrl = String(payload.profileImageUrl || '').trim();
+  if (existingProfileImageUrl) {
+    payload.profileImageUrl = existingProfileImageUrl;
+    return payload;
+  }
+
+  const actorIds = extractActorIds(payload);
+  if (!actorIds.length) return payload;
+
+  const profiles = await Profile.find({ userId: { $in: actorIds } })
+    .select('userId profileImageUrl')
+    .lean();
+
+  const profileByUserId = new Map(
+    profiles.map((profile) => [
+      String(profile.userId),
+      String(profile.profileImageUrl || '').trim(),
+    ]),
+  );
+
+  const actorUserId = String(payload.actorUserId || '').trim();
+  const senderId = String(payload.senderId || '').trim();
+
+  const resolvedImageUrl =
+    (actorUserId ? profileByUserId.get(actorUserId) : '') ||
+    (senderId ? profileByUserId.get(senderId) : '') ||
+    '';
+
+  if (resolvedImageUrl) {
+    payload.profileImageUrl = resolvedImageUrl;
+  }
+
+  return payload;
 }
 
 async function saveNotifications({
@@ -79,42 +131,49 @@ function fireAndForgetNotifyAndPush({
   if (!recipients.length) return;
 
   const skipPushSet = new Set(normalizeUserIds(skipPushUserIds));
+  const pushRecipients = recipients.filter((id) => !skipPushSet.has(id));
 
   if (String(type || '').toLowerCase() === 'ublast') {
     console.log('[NotifyAndPush][ublast] enqueue recipients=' + recipients.length);
   }
 
-  saveNotifications({
-    userIds: recipients,
-    title,
-    body,
-    type,
-    data,
-    screen,
-  })
-    .then((notifications) => {
+  Promise.resolve()
+    .then(async () => {
+      const enrichedData = await enrichNotificationData(data);
+
+      const notifications = await saveNotifications({
+        userIds: recipients,
+        title,
+        body,
+        type,
+        data: enrichedData,
+        screen,
+      });
+
       emitNotifications(io, notifications);
+
       if (String(type || '').toLowerCase() === 'ublast') {
-        console.log('[NotifyAndPush][ublast] saved=' + notifications.length + ' emitted=' + notifications.length);
+        console.log(
+          '[NotifyAndPush][ublast] saved=' + notifications.length + ' emitted=' + notifications.length,
+        );
       }
+
+      if (!pushRecipients.length) return;
+
+      fireAndForgetPush({
+        userIds: pushRecipients,
+        title,
+        body,
+        data: {
+          ...toObjectData(enrichedData),
+          type: String(type || enrichedData?.type || 'system'),
+        },
+        screen,
+      });
     })
     .catch((err) => {
       console.error('Save notification failed:', err?.message || err);
     });
-
-  const pushRecipients = recipients.filter((id) => !skipPushSet.has(id));
-  if (!pushRecipients.length) return;
-
-  fireAndForgetPush({
-    userIds: pushRecipients,
-    title,
-    body,
-    data: {
-      ...toObjectData(data),
-      type: String(type || data?.type || 'system'),
-    },
-    screen,
-  });
 }
 
 module.exports = {
@@ -122,5 +181,3 @@ module.exports = {
   emitNotifications,
   fireAndForgetNotifyAndPush,
 };
-
-
