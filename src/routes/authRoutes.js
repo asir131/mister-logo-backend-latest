@@ -1,5 +1,6 @@
 const express = require('express');
 const { body } = require('express-validator');
+const authenticate = require('../middleware/auth');
 const passport = require('passport');
 const {
   register,
@@ -10,6 +11,7 @@ const {
   forgotPassword,
   verifyResetOtp,
   resetPassword,
+  deleteMyAccount,
   facebookAuthSuccess,
   googleAuthSuccess,
   buildAuthResponse,
@@ -245,6 +247,7 @@ router.post(
   verifyResetOtp,
 );
 
+router.delete('/delete-account', authenticate, deleteMyAccount);
 router.post(
   '/reset-password',
   [
@@ -371,3 +374,5 @@ router.get('/google/callback', ensureGoogleConfigured, (req, res, next) => {
 });
 
 module.exports = router;
+
+

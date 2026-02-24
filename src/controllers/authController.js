@@ -10,6 +10,7 @@ const User = require('../models/User');
 const Profile = require('../models/Profile');
 const OtpToken = require('../models/OtpToken');
 const RefreshToken = require('../models/RefreshToken');
+const { hardDeleteUsers } = require('../services/userDeletion');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
@@ -392,6 +393,26 @@ async function resetPassword(req, res) {
   }
 }
 
+async function deleteMyAccount(req, res) {
+  const userId = req.user?.id;
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized.' });
+  }
+
+  try {
+    const user = await User.findById(userId).select('_id').lean();
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    await hardDeleteUsers([String(user._id)]);
+
+    return res.status(200).json({ message: 'Account deleted successfully.' });
+  } catch (err) {
+    console.error('Delete account error:', err);
+    return res.status(500).json({ error: 'Could not delete account.' });
+  }
+}
 async function buildAuthResponse(userObj) {
   const token = issueToken(userObj);
   const refreshToken = await issueRefreshToken(userObj._id || userObj.id);
@@ -624,8 +645,16 @@ module.exports = {
   forgotPassword,
   verifyResetOtp,
   resetPassword,
+  deleteMyAccount,
   firebaseLogin,
   buildAuthResponse,
   facebookAuthSuccess,
   googleAuthSuccess,
 };
+
+
+
+
+
+
+

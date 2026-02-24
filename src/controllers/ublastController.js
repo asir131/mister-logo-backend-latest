@@ -17,6 +17,10 @@ function handleValidation(req, res) {
   return null;
 }
 
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function detectMediaType(mimetype) {
   if (!mimetype) return null;
   if (mimetype.startsWith('image/')) return 'image';
@@ -60,17 +64,42 @@ async function getActiveUblasts(req, res) {
   const limit = Number.parseInt(req.query.limit, 10) > 0 ? Math.min(50, Number.parseInt(req.query.limit, 10)) : 12;
   const skip = (page - 1) * limit;
 
+  const searchText = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const searchRegex = searchText ? new RegExp(escapeRegex(searchText), 'i') : null;
+
+  const searchProfiles = searchRegex
+    ? await Profile.find({
+        $or: [{ username: searchRegex }, { displayName: searchRegex }],
+      })
+        .select('userId')
+        .lean()
+    : [];
+  const searchUserIds = searchProfiles
+    .map((entry) => entry.userId)
+    .filter(Boolean);
+
+  const baseMatch = {
+    status: 'released',
+    expiresAt: { $gt: now },
+    $or: [{ targetUserId: null }, { targetUserId: { $exists: false } }, { targetUserId: userId }],
+    ...(searchRegex
+      ? {
+          $and: [
+            {
+              $or: [
+                { title: searchRegex },
+                { content: searchRegex },
+                { createdBy: { $in: searchUserIds } },
+              ],
+            },
+          ],
+        }
+      : {}),
+  };
+
   const [totalCount, ublasts] = await Promise.all([
-    UBlast.countDocuments({
-      status: 'released',
-      expiresAt: { $gt: now },
-      $or: [{ targetUserId: null }, { targetUserId: { $exists: false } }, { targetUserId: userId }],
-    }),
-    UBlast.find({
-      status: 'released',
-      expiresAt: { $gt: now },
-      $or: [{ targetUserId: null }, { targetUserId: { $exists: false } }, { targetUserId: userId }],
-    })
+    UBlast.countDocuments(baseMatch),
+    UBlast.find(baseMatch)
       .sort({ releasedAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -462,4 +491,7 @@ module.exports = {
   shareUblast,
   shareUblastInternal,
 };
+
+
+
 
