@@ -8,8 +8,8 @@ const Comment = require('../models/Comment');
 const SavedPost = require('../models/SavedPost');
 const { uploadMediaBuffer } = require('../services/cloudinary');
 const { enqueuePostShare } = require('../services/shareQueue');
-const lateApi = require('../services/lateApi');
-const { resolvePlatformsForUser } = require('../services/lateAccounts');
+const outstandApi = require('../services/outstandApi');
+const { resolveAccountsForUser } = require('../services/outstandAccounts');
 const UBlast = require('../models/UBlast');
 const User = require('../models/User');
 
@@ -299,7 +299,7 @@ async function createPost(req, res) {
 
     if (isScheduled && shareTargets.length > 0) {
       try {
-        const { platforms, missing, lateProfileId } = await resolvePlatformsForUser(
+        const { accountIds, missing } = await resolveAccountsForUser(
           userId,
           shareTargets,
         );
@@ -314,30 +314,29 @@ async function createPost(req, res) {
           });
           await Post.updateOne({ _id: created._id }, { $set: failedStatus });
         }
-        if (platforms.length === 0) {
+        if (accountIds.length === 0) {
           return res.status(201).json({
             message: 'Post scheduled successfully.',
             post: created,
           });
         }
-        const latePost = await lateApi.createPost({
+        const outstandPost = await outstandApi.createPost({
           content: description || '',
           mediaUrls: [created.mediaUrl],
-          platforms,
+          accounts: accountIds,
           scheduledAt: scheduledForInput.toISOString(),
-          lateAccountId: lateProfileId,
         });
         await Post.updateOne(
           { _id: created._id },
           {
             $set: {
-              latePostId: latePost.id || latePost.postId,
+              latePostId: outstandPost.id || outstandPost.postId,
               shareStatus: buildShareStatusFromTargets(shareTargets),
             },
           },
         );
       } catch (err) {
-        console.error('LATE scheduled post error:', err);
+        console.error('Outstand scheduled post error:', err);
         const failedStatus = {};
         shareTargets.forEach((platform) => {
           failedStatus[`shareStatus.${platform}`] = {
@@ -644,14 +643,12 @@ async function sharePostInternal({ userId, postId, target }) {
       : [];
   let targetWarning = null;
 
-  let platforms = [];
-  let lateProfileId = null;
+  let accountIds = [];
   if (externalTarget) {
     try {
-      const resolved = await resolvePlatformsForUser(userId, [externalTarget]);
-      platforms = resolved.platforms || [];
-      lateProfileId = resolved.lateProfileId || null;
-      if (!platforms.length || (resolved.missing || []).length) {
+      const resolved = await resolveAccountsForUser(userId, [externalTarget]);
+      accountIds = resolved.accountIds || [];
+      if (!accountIds.length || (resolved.missing || []).length) {
         if (strictExternalOnlyTargets.has(externalTarget)) {
           return {
             status: 400,
@@ -680,11 +677,10 @@ async function sharePostInternal({ userId, postId, target }) {
   // YouTube shares from post share modal should not create an in-app shared post.
   if (externalTarget && strictExternalOnlyTargets.has(externalTarget)) {
     try {
-      await lateApi.createPost({
+      await outstandApi.createPost({
         content: source.description || '',
         mediaUrls: [source.mediaUrl],
-        platforms,
-        lateAccountId: lateProfileId,
+        accounts: accountIds,
       });
       return {
         post: null,
@@ -734,15 +730,14 @@ async function sharePostInternal({ userId, postId, target }) {
 
   if (externalTarget) {
     try {
-      const latePost = await lateApi.createPost({
+      const outstandPost = await outstandApi.createPost({
         content: created.description || '',
         mediaUrls: [created.mediaUrl],
-        platforms,
-        lateAccountId: lateProfileId,
+        accounts: accountIds,
       });
       await Post.updateOne(
         { _id: created._id },
-        { $set: { latePostId: latePost.id || latePost.postId } },
+        { $set: { latePostId: outstandPost.id || outstandPost.postId } },
       );
     } catch (err) {
       if (statusTrackableTargets.has(externalTarget)) {

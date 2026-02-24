@@ -111,9 +111,10 @@ export default function FeedPage() {
       setFeedLoading(false);
       return;
     }
-    setFeedPage(result.data.page);
-    setFeedTotalPages(result.data.totalPages);
-    setPosts((prev) => (replace ? result.data.posts : [...prev, ...result.data.posts]));
+    const nextPosts = Array.isArray(result.data?.posts) ? result.data.posts : [];
+    setFeedPage(result.data?.page || 1);
+    setFeedTotalPages(result.data?.totalPages || 1);
+    setPosts((prev) => (replace ? nextPosts : [...prev, ...nextPosts]));
     setFeedLoading(false);
   }
 

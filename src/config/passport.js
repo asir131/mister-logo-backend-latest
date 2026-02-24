@@ -39,12 +39,11 @@ if (!isFacebookConfigured) {
           const email = profile.emails?.[0]?.value || null;
           const displayName = profile.displayName || 'Facebook User';
 
-          if (!email) {
-            return done(null, false, { message: 'Facebook account has no email.' });
-          }
+          const resolvedEmail =
+            email || `fb_${facebookId}@no-email.facebook`;
 
           let user = await User.findOne({
-            $or: [{ facebookId }, { email }],
+            $or: [{ facebookId }, { email: resolvedEmail }, { email }],
           });
 
           if (user) {
@@ -66,7 +65,7 @@ if (!isFacebookConfigured) {
 
           user = await User.create({
             name: displayName,
-            email,
+            email: resolvedEmail,
             facebookId,
             authProvider: 'facebook',
           });

@@ -42,6 +42,7 @@ const supportRoutes = require("./routes/supportRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const { startUblastJobs } = require("./jobs/ublastScheduler");
 const { startPostScheduler } = require("./jobs/postScheduler");
+const { sharePage } = require("./controllers/sharePageController");
 
 const app = express();
 const server = http.createServer(app);
@@ -52,12 +53,17 @@ const allowedOrigins = process.env.CORS_ORIGINS
       "http://localhost:5173",
       "https://ungustatory-erringly-ralph.ngrok-free.dev",
       "https://mister-logo-dashboard-vuek.vercel.app",
-      
     ];
 app.use(
   cors({
     origin: allowedOrigins,
     credentials: true,
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "ngrok-skip-browser-warning",
+    ],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   }),
 );
 app.use(
@@ -98,6 +104,9 @@ app.use("/webhooks", webhooksRoutes);
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
+
+// Public share page (Open Graph preview)
+app.get("/share/:postId", sharePage);
 
 // Global error handler fallback
 // eslint-disable-next-line no-unused-vars
@@ -183,11 +192,12 @@ connectDB()
     server.listen(PORT, () => {
       // Simple startup log for visibility
       console.log(`Server running on port ${PORT}`);
-      console.log(`GOOGLE_CALLBACK_URL: ${process.env.GOOGLE_CALLBACK_URL || ""}`);
+      console.log(
+        `GOOGLE_CALLBACK_URL: ${process.env.GOOGLE_CALLBACK_URL || ""}`,
+      );
     });
   })
   .catch((err) => {
     console.error("Failed to connect to database:", err);
     process.exit(1);
   });
-

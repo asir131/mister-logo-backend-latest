@@ -65,6 +65,11 @@ export default function LoginPage() {
     window.location.href = `${baseUrl}/api/auth/google/web`;
   }
 
+  function handleFacebookLogin() {
+    const baseUrl = getBaseUrl();
+    window.location.href = `${baseUrl}/api/auth/facebook/web`;
+  }
+
   return (
     <PageShell
       title="Login"
@@ -91,6 +96,9 @@ export default function LoginPage() {
       <section className="card">
         <button className="btn" type="button" onClick={handleGoogleLogin}>
           Continue with Google
+        </button>
+        <button className="btn" type="button" onClick={handleFacebookLogin}>
+          Continue with Facebook
         </button>
       </section>
       {status && (

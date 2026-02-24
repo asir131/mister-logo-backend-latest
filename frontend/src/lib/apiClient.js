@@ -27,8 +27,12 @@ export async function apiRequest({
   headers = {},
   baseUrl,
 }) {
-  const url = `${baseUrl || getBaseUrl()}${path}`;
+  let url = `${baseUrl || getBaseUrl()}${path}`;
   const init = { method, headers: { ...headers } };
+  if (/ngrok-free\.(app|dev)/i.test(url)) {
+    init.headers["ngrok-skip-browser-warning"] = "true";
+    url += (url.includes("?") ? "&" : "?") + "ngrok-skip-browser-warning=true";
+  }
   if (token) init.headers.Authorization = `Bearer ${token}`;
 
   if (body instanceof FormData) {

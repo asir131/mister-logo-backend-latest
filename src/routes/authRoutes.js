@@ -278,6 +278,12 @@ router.get(
   },
 );
 
+router.get(
+  '/facebook/web',
+  ensureFacebookConfigured,
+  passport.authenticate('facebook', { scope: ['email'], state: 'web' }),
+);
+
 router.get('/facebook/callback', ensureFacebookConfigured, (req, res, next) => {
   const state = decodeState(req.query.state);
   passport.authenticate('facebook', { session: false }, (err, user, info) => {
@@ -295,6 +301,19 @@ router.get('/facebook/callback', ensureFacebookConfigured, (req, res, next) => {
         .json({ error: info?.message || 'Facebook login failed.' });
     }
     req.user = user;
+    if (state.mode === 'web') {
+      return buildAuthResponse(user)
+        .then((payload) => {
+          const redirectUrl = `${APP_WEB_BASE_URL}/oauth/facebook?token=${encodeURIComponent(
+            payload.token,
+          )}&refreshToken=${encodeURIComponent(payload.refreshToken)}`;
+          return res.redirect(redirectUrl);
+        })
+        .catch((error) => {
+          console.error('Facebook login error:', error);
+          return res.status(500).json({ error: 'Could not login with Facebook.' });
+        });
+    }
     if (state.mode === 'mobile') {
       return buildAuthResponse(user)
         .then((payload) => redirectMobileSuccess(res, state.clientRedirect, payload))

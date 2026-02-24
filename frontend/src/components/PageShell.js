@@ -53,13 +53,13 @@ export default function PageShell({ title, subtitle, actions, children }) {
     });
   }, []);
 
-  async function handleConnectLate(platform) {
+  async function handleConnectOutstand(platform) {
     const auth = getAuth();
     if (!auth.token) {
       return;
     }
     const result = await apiRequest({
-      path: "/api/accounts/connect-late",
+      path: "/api/accounts/connect-outstand",
       method: "POST",
       token: auth.token,
       body: { platform },
@@ -69,7 +69,7 @@ export default function PageShell({ title, subtitle, actions, children }) {
       window.location.href = redirectUrl;
     } else {
       // eslint-disable-next-line no-alert
-      alert(result.data?.error || "Failed to start LATE connection.");
+      alert(result.data?.error || "Failed to start Outstand connection.");
     }
   }
 
@@ -85,22 +85,22 @@ export default function PageShell({ title, subtitle, actions, children }) {
             <Link className="btn ghost" href="/trending">
               {t("Trending")}
             </Link>
-            <button className="btn ghost" type="button" onClick={() => handleConnectLate("instagram")}>
+            <button className="btn ghost" type="button" onClick={() => handleConnectOutstand("instagram")}>
               Connect Instagram {connected.includes("instagram") ? "OK" : ""}
             </button>
-            <button className="btn ghost" type="button" onClick={() => handleConnectLate("facebook")}>
+            <button className="btn ghost" type="button" onClick={() => handleConnectOutstand("facebook")}>
               Connect Facebook {connected.includes("facebook") ? "OK" : ""}
             </button>
-            <button className="btn ghost" type="button" onClick={() => handleConnectLate("twitter")}>
+            <button className="btn ghost" type="button" onClick={() => handleConnectOutstand("twitter")}>
               Connect Twitter {connected.includes("twitter") ? "OK" : ""}
             </button>
-            <button className="btn ghost" type="button" onClick={() => handleConnectLate("tiktok")}>
+            <button className="btn ghost" type="button" onClick={() => handleConnectOutstand("tiktok")}>
               Connect TikTok {connected.includes("tiktok") ? "OK" : ""}
             </button>
-            <button className="btn ghost" type="button" onClick={() => handleConnectLate("youtube")}>
+            <button className="btn ghost" type="button" onClick={() => handleConnectOutstand("youtube")}>
               Connect YouTube {connected.includes("youtube") ? "OK" : ""}
             </button>
-            <button className="btn ghost" type="button" onClick={() => handleConnectLate("snapchat")}>
+            <button className="btn ghost" type="button" onClick={() => handleConnectOutstand("snapchat")}>
               Connect Snapchat {connected.includes("snapchat") ? "OK" : ""}
             </button>
             <Link className="btn ghost" href="/login">

@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const Post = require('../models/Post');
 
-const WEBHOOK_SECRET = process.env.LATE_WEBHOOK_SECRET;
+const WEBHOOK_SECRET = process.env.OUTSTAND_WEBHOOK_SECRET;
 
 function verifySignature(rawBody, signature) {
   if (!WEBHOOK_SECRET) return true;
@@ -26,8 +26,8 @@ function mapStatus(eventType) {
   }
 }
 
-async function lateWebhook(req, res) {
-  const signature = req.headers['x-late-signature'];
+async function outstandWebhook(req, res) {
+  const signature = req.headers['x-outstand-signature'];
   const rawBody = req.rawBody;
 
   if (!verifySignature(rawBody, signature)) {
@@ -73,5 +73,5 @@ async function lateWebhook(req, res) {
 }
 
 module.exports = {
-  lateWebhook,
+  outstandWebhook,
 };

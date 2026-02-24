@@ -1,6 +1,6 @@
 const User = require('../models/User');
-const lateApi = require('../services/lateApi');
-const { syncAccountsForUser } = require('../services/lateAccounts');
+const outstandApi = require('../services/outstandApi');
+const { syncAccountsForUser } = require('../services/outstandAccounts');
 
 function normalizePlatformName(value) {
   const platform = String(value || '').toLowerCase().trim();
@@ -9,7 +9,7 @@ function normalizePlatformName(value) {
   return platform;
 }
 
-async function connectLate(req, res) {
+async function connectOutstand(req, res) {
   try {
     const userId = req.user.id;
     const platform = normalizePlatformName(req.body?.platform || req.query?.platform);
@@ -23,28 +23,31 @@ async function connectLate(req, res) {
     const host =
       (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) ||
       req.get('host');
-    const callbackUri = host
-      ? `${protocol}://${host}/api/accounts/late-callback`
+    const callbackBase = host
+      ? `${protocol}://${host}/api/accounts/outstand-callback`
       : undefined;
+    const callbackParams = new URLSearchParams({ userId: String(userId) });
+    if (appRedirectUri) {
+      callbackParams.set('clientRedirect', String(appRedirectUri));
+    }
+    const callbackUri =
+      callbackBase && callbackParams.toString()
+        ? `${callbackBase}${callbackBase.includes('?') ? '&' : '?'}${callbackParams.toString()}`
+        : callbackBase;
 
-    const data = await lateApi.connectAccount(
-      userId,
-      platform,
-      appRedirectUri,
-      callbackUri,
-    );
+    const data = await outstandApi.connectAccount(userId, platform, callbackUri);
     return res.status(200).json({
-      url: data.url,
-      authUrl: data.authUrl,
-      accountId: data.accountId,
+      url: data.url || data.auth_url || data.authUrl,
+      authUrl: data.authUrl || data.auth_url || data.url,
+      accountId: data.accountId || data.id,
     });
   } catch (err) {
-    console.error('LATE connect error:', err);
+    console.error('Outstand connect error:', err);
     return res.status(err.status || 500).json({ error: err.message });
   }
 }
 
-async function lateCallback(req, res) {
+async function outstandCallback(req, res) {
   try {
     const rawQuery = req.originalUrl.includes('?')
       ? req.originalUrl.slice(req.originalUrl.indexOf('?') + 1)
@@ -92,37 +95,58 @@ async function lateCallback(req, res) {
     if (typeof userId === 'string' && userId.includes('?')) {
       userId = userId.split('?')[0];
     }
+    const sessionToken = pickParam('session') || pickParam('pending');
     const connectedPlatform = normalizePlatformName(
-      pickParam('connected') || pickParam('platform')
+      pickParam('connected') || pickParam('platform') || pickParam('network')
     );
-    const profileId = pickParam('profileId') || process.env.LATE_PROFILE_ID;
+    const tenantId = pickParam('tenantId') || pickParam('tenant_id') || outstandApi.buildTenantId(userId);
     let alreadyConnected = false;
 
-    if (userId && profileId) {
+    if (userId && tenantId) {
       const existingUser = await User.findById(userId).lean();
       if (existingUser && connectedPlatform) {
         alreadyConnected = (existingUser.connectedPlatforms || []).includes(connectedPlatform);
       }
 
       const updates = {
-        lateAccountId: profileId,
+        lateAccountId: tenantId,
       };
       const ops = { $set: updates };
       if (connectedPlatform) {
         ops.$addToSet = { connectedPlatforms: connectedPlatform };
       }
       await User.updateOne({ _id: userId }, ops);
+    }
+
+    if (sessionToken && userId) {
       try {
-        await syncAccountsForUser(userId);
-      } catch (syncError) {
-        console.error('LATE sync accounts error:', syncError);
+        const pending = await outstandApi.getPendingConnection(sessionToken);
+        const availablePages = pending?.availablePages || pending?.pages || pending?.data?.availablePages;
+        if (Array.isArray(availablePages) && availablePages.length > 0) {
+          const pageIds = availablePages
+            .map((page) => page.id || page.pageId || page._id)
+            .filter(Boolean);
+          if (pageIds.length) {
+            await outstandApi.finalizePendingConnection(sessionToken, pageIds);
+          }
+        } else {
+          await outstandApi.finalizePendingConnection(sessionToken, []);
+        }
+      } catch (pendingErr) {
+        console.error('Outstand pending finalize error:', pendingErr);
       }
+    }
+
+    try {
+      await syncAccountsForUser(userId);
+    } catch (syncError) {
+      console.error('Outstand sync accounts error:', syncError);
     }
 
     const redirectUrl = resolveClientRedirect({
       status: 'success',
       connected: connectedPlatform || '',
-      profileId: profileId || '',
+      profileId: tenantId || '',
       alreadyConnected: alreadyConnected ? '1' : '0',
     });
     if (redirectUrl) {
@@ -132,12 +156,12 @@ async function lateCallback(req, res) {
     return res.status(200).json({
       ok: true,
       userId,
-      profileId,
+      profileId: tenantId,
       connected: connectedPlatform || null,
       alreadyConnected,
     });
   } catch (err) {
-    console.error('LATE callback error:', err);
+    console.error('Outstand callback error:', err);
     return res.status(err.status || 500).json({ error: err.message });
   }
 }
@@ -151,13 +175,25 @@ async function listAccounts(req, res) {
     if (!user?.lateAccountId) {
       return res.status(200).json({ accounts: [] });
     }
-    const { accounts } = await syncAccountsForUser(req.user.id);
+    let accounts = [];
+    try {
+      const result = await syncAccountsForUser(req.user.id);
+      accounts = result.accounts || [];
+    } catch (syncErr) {
+      if (syncErr?.message?.includes('OUTSTAND_API_KEY is not configured')) {
+        return res.status(200).json({
+          accounts: [],
+          warning: 'Outstand API key not configured.',
+        });
+      }
+      throw syncErr;
+    }
     return res.status(200).json({
       accounts,
       lateAccountId: user.lateAccountId,
     });
   } catch (err) {
-    console.error('LATE list accounts error:', err);
+    console.error('Outstand list accounts error:', err);
     return res.status(err.status || 500).json({ error: err.message });
   }
 }
@@ -167,7 +203,7 @@ async function disconnectAccount(req, res) {
     const platform = normalizePlatformName(req.params.platform);
     const user = await User.findById(req.user.id).lean();
     if (!user?.lateAccountId) {
-      return res.status(400).json({ error: 'No LATE account connected.' });
+      return res.status(400).json({ error: 'No Outstand account connected.' });
     }
     const { accounts } = await syncAccountsForUser(req.user.id);
     const account = (accounts || []).find((item) => item.platform === platform);
@@ -179,29 +215,25 @@ async function disconnectAccount(req, res) {
       });
     }
 
-    await lateApi.disconnectAccount({
-      lateProfileId: user.lateAccountId,
-      accountId: account.accountId,
-      platform,
-    });
+    await outstandApi.disconnectAccount(account.accountId);
 
     // Refresh local snapshot best-effort.
     try {
       await syncAccountsForUser(req.user.id);
     } catch (syncErr) {
-      console.error('LATE post-disconnect sync error:', syncErr);
+      console.error('Outstand post-disconnect sync error:', syncErr);
     }
 
     return res.status(200).json({ disconnected: true });
   } catch (err) {
-    console.error('LATE disconnect error:', err);
+    console.error('Outstand disconnect error:', err);
     return res.status(err.status || 500).json({ error: err.message });
   }
 }
 
 module.exports = {
-  connectLate,
-  lateCallback,
+  connectOutstand,
+  outstandCallback,
   listAccounts,
   disconnectAccount,
 };

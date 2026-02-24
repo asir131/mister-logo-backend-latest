@@ -1,6 +1,6 @@
 const Post = require("../models/Post");
-const { resolvePlatformsForUser } = require("./lateAccounts");
-const lateApi = require("./lateApi");
+const { resolveAccountsForUser } = require("./outstandAccounts");
+const outstandApi = require("./outstandApi");
 
 function normalizeTargets(post) {
   const targets = new Set();
@@ -20,12 +20,12 @@ async function enqueuePostShare(post) {
 
   setImmediate(() => {
     console.log(
-      `Queued post ${post._id} for LATE share: ${targets.join(", ")}`,
+      `Queued post ${post._id} for Outstand share: ${targets.join(", ")}`,
     );
   });
 
   try {
-    const { platforms, missing, lateProfileId } = await resolvePlatformsForUser(
+    const { accountIds, missing } = await resolveAccountsForUser(
       post.userId,
       targets,
     );
@@ -40,24 +40,23 @@ async function enqueuePostShare(post) {
       });
       await Post.updateOne({ _id: post._id }, { $set: update });
     }
-    if (platforms.length === 0) return;
+    if (accountIds.length === 0) return;
 
-    const latePost = await lateApi.createPost({
+    const outstandPost = await outstandApi.createPost({
       content: post.description || "",
       mediaUrls: [post.mediaUrl],
-      platforms,
-      lateAccountId: lateProfileId,
+      accounts: accountIds,
     });
     await Post.updateOne(
       { _id: post._id },
       {
         $set: {
-          latePostId: latePost.id || latePost.postId,
+          latePostId: outstandPost.id || outstandPost.postId,
         },
       },
     );
   } catch (err) {
-    console.error("LATE share error:", {
+    console.error("Outstand share error:", {
       message: err.message,
       status: err.status,
       payload: err.payload,
