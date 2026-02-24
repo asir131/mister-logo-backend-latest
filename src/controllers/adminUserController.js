@@ -21,6 +21,7 @@ const Block = require('../models/Block');
 const SupportThread = require('../models/SupportThread');
 const SupportMessage = require('../models/SupportMessage');
 const ModerationAction = require('../models/ModerationAction');
+const { hardDeleteUsers } = require('../services/userDeletion');
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
@@ -275,33 +276,7 @@ async function deleteUsersBulk(req, res) {
     return res.status(400).json({ error: 'No valid user ids provided.' });
   }
 
-  const usersToDelete = await User.find(
-    { _id: { $in: validIds } },
-    { email: 1 },
-  ).lean();
-
-  const idMatch = { $in: validIds };
-  await Promise.all([
-    SupportMessage.deleteMany({ userId: idMatch }),
-    SupportThread.deleteMany({ userId: idMatch }),
-    UcutComment.deleteMany({ userId: idMatch }),
-    UcutLike.deleteMany({ userId: idMatch }),
-    Ucut.deleteMany({ userId: idMatch }),
-    Message.deleteMany({ $or: [{ senderId: idMatch }, { recipientId: idMatch }] }),
-    Conversation.deleteMany({ participants: idMatch }),
-    SavedPost.deleteMany({ userId: idMatch }),
-    Like.deleteMany({ userId: idMatch }),
-    Comment.deleteMany({ userId: idMatch }),
-    Follow.deleteMany({ $or: [{ followerId: idMatch }, { followingId: idMatch }] }),
-    UBlastSubmission.deleteMany({ userId: idMatch }),
-    UblastOffer.deleteMany({ userId: idMatch }),
-    Block.deleteMany({ $or: [{ userId: idMatch }, { blockedUserId: idMatch }] }),
-    Post.deleteMany({ userId: idMatch }),
-    Profile.deleteMany({ userId: idMatch }),
-    RefreshToken.deleteMany({ userId: idMatch }),
-    OtpToken.deleteMany({ userId: idMatch }),
-    User.deleteMany({ _id: idMatch }),
-  ]);
+  const { users: usersToDelete = [], deleted = 0 } = await hardDeleteUsers(validIds);
 
   if (usersToDelete.length) {
     const performedBy = getAdminIdentifier(req);
@@ -316,7 +291,7 @@ async function deleteUsersBulk(req, res) {
     );
   }
 
-  return res.status(200).json({ deleted: validIds.length });
+  return res.status(200).json({ deleted });
 }
 
 module.exports = {
@@ -326,3 +301,5 @@ module.exports = {
   clearLinkedAccounts,
   deleteUsersBulk,
 };
+
+

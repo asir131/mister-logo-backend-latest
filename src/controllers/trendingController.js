@@ -3,12 +3,18 @@ const mongoose = require("mongoose");
 const UBlast = require("../models/UBlast");
 const TrendingPlacement = require("../models/TrendingPlacement");
 const Post = require("../models/Post");
+const Profile = require("../models/Profile");
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed <= 0) return fallback;
   if (max) return Math.min(parsed, max);
   return parsed;
+}
+
+
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function getTrending(req, res) {
@@ -27,6 +33,38 @@ async function getTrending(req, res) {
   const organicSkip = (organicPage - 1) * limitOrganic;
   const itemsSkip = (itemsPage - 1) * limitItems;
 
+  const searchText = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const searchRegex = searchText ? new RegExp(escapeRegex(searchText), "i") : null;
+  const searchProfiles = searchRegex
+    ? await Profile.find({
+        $or: [{ username: searchRegex }, { displayName: searchRegex }],
+      })
+        .select("userId")
+        .lean()
+    : [];
+  const searchUserIds = searchProfiles
+    .map((entry) => entry.userId)
+    .filter(Boolean);
+
+  const postSearchMatch = searchRegex
+    ? {
+        $or: [
+          { description: searchRegex },
+          { userId: { $in: searchUserIds } },
+        ],
+      }
+    : {};
+
+  const activeSearchMatch = searchRegex
+    ? {
+        $or: [
+          { title: searchRegex },
+          { content: searchRegex },
+          { createdBy: { $in: searchUserIds } },
+        ],
+      }
+    : {};
+
   const activeUblasts = await UBlast.find({
     status: "released",
     releasedAt: { $lte: now },
@@ -34,6 +72,7 @@ async function getTrending(req, res) {
       { topExpiresAt: { $gt: now } },
       { topExpiresAt: { $exists: false }, expiresAt: { $gt: now } },
     ],
+    ...activeSearchMatch,
   })
     .sort({ releasedAt: -1 })
     .lean();
@@ -81,7 +120,7 @@ async function getTrending(req, res) {
   };
 
   const topFilter = activeUblastIds.length
-    ? { ublastId: { $in: activeUblastIds }, ...visibilityMatch }
+    ? { ublastId: { $in: activeUblastIds }, ...visibilityMatch, ...postSearchMatch }
     : null;
   const [topTotalCount, topPosts] = topFilter
     ? await Promise.all([
@@ -113,6 +152,7 @@ async function getTrending(req, res) {
     ? await Post.find({
         _id: { $in: manualPostIds },
         ...visibilityMatch,
+        ...postSearchMatch,
       }).lean()
     : [];
 
@@ -153,6 +193,15 @@ async function getTrending(req, res) {
       : {}),
   };
 
+
+  if (searchRegex) {
+    organicMatch.$and.push({
+      $or: [
+        { description: searchRegex },
+        { userId: { $in: searchUserIds } },
+      ],
+    });
+  }
   const baseOrganicPipeline = [
     { $match: organicMatch },
     {
@@ -373,3 +422,16 @@ async function getTrending(req, res) {
 }
 
 module.exports = { getTrending };
+
+
+
+
+
+
+
+
+
+
+
+
+
