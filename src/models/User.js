@@ -9,9 +9,10 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String },
     facebookId: { type: String, unique: true, sparse: true },
     googleId: { type: String, unique: true, sparse: true },
+    instagramId: { type: String, unique: true, sparse: true },
     authProvider: {
       type: String,
-      enum: ['local', 'facebook', 'google'],
+      enum: ['local', 'facebook', 'google', 'instagram'],
       default: 'local',
     },
     isBlocked: { type: Boolean, default: false },
@@ -46,8 +47,17 @@ const userSchema = new mongoose.Schema(
     ],
     lateAccountId: { type: String, index: true },
     legacyPlatformTokens: { type: mongoose.Schema.Types.Mixed },
+    locationSharing: {
+      isShared: { type: Boolean, default: false },
+      latitude: { type: Number },
+      longitude: { type: Number },
+      updatedAt: { type: Date },
+    },
   },
   { timestamps: true },
 );
 
 module.exports = mongoose.model('User', userSchema);
+
+
+

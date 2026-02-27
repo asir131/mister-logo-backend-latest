@@ -10,6 +10,8 @@ const {
   clearConversation,
   blockUser,
   unblockUser,
+  updateMyLocationSharing,
+  getSharedLocations,
 } = require('../controllers/chatController');
 
 const upload = multer({
@@ -26,5 +28,8 @@ router.post('/:userId/read', authenticate, markConversationRead);
 router.post('/:userId/clear', authenticate, clearConversation);
 router.post('/:userId/block', authenticate, blockUser);
 router.post('/:userId/unblock', authenticate, unblockUser);
+router.get('/locations/shared', authenticate, getSharedLocations);
+router.post('/locations/share', authenticate, updateMyLocationSharing);
 
 module.exports = router;
+
