@@ -47,6 +47,12 @@ const userSchema = new mongoose.Schema(
     ],
     lateAccountId: { type: String, index: true },
     legacyPlatformTokens: { type: mongoose.Schema.Types.Mixed },
+    youtubeAuth: {
+      accessToken: { type: String },
+      refreshToken: { type: String },
+      expiresAt: { type: Date },
+      scope: { type: String },
+    },
     locationSharing: {
       isShared: { type: Boolean, default: false },
       latitude: { type: Number },
@@ -58,6 +64,7 @@ const userSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model('User', userSchema);
+
 
 
 

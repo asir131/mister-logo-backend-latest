@@ -40,6 +40,7 @@ const translateRoutes = require("./routes/translateRoutes");
 const ublastOfferRoutes = require("./routes/ublastOfferRoutes");
 const supportRoutes = require("./routes/supportRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const youtubeRoutes = require("./routes/youtubeRoutes");
 const { startUblastJobs } = require("./jobs/ublastScheduler");
 const { startPostScheduler } = require("./jobs/postScheduler");
 const { sharePage, shareXLink } = require("./controllers/sharePageController");
@@ -96,6 +97,7 @@ app.use("/api/translate", translateRoutes);
 app.use("/api/ublast-offers", ublastOfferRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/youtube", youtubeRoutes);
 app.use("/api/admin/auth", adminAuthRoutes);
 app.use("/api/admin", adminUblastRoutes);
 app.use("/webhooks", webhooksRoutes);
@@ -202,3 +204,4 @@ connectDB()
     console.error("Failed to connect to database:", err);
     process.exit(1);
   });
+
