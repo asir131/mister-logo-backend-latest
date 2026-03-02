@@ -59,6 +59,7 @@ router.post(
     urlField('youtubeUrl', 'YouTube URL'),
     urlField('facebookUrl', 'Facebook URL'),
     urlField('spotifyArtistUrl', 'Spotify artist URL'),
+    urlField('businessLink', 'Buseness link'),
   ],
   completeProfile,
 );
@@ -82,6 +83,7 @@ router.patch(
     urlField('youtubeUrl', 'YouTube URL'),
     urlField('facebookUrl', 'Facebook URL'),
     urlField('spotifyArtistUrl', 'Spotify artist URL'),
+    urlField('businessLink', 'Buseness link'),
   ],
   updateProfile,
 );

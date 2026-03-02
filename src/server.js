@@ -188,6 +188,15 @@ io.on("connection", (socket) => {
 });
 
 app.set("io", io);
+server.on("error", (err) => {
+  if (err?.code === "EADDRINUSE") {
+    console.error(`Port ${PORT} is already in use. Stop the existing process or use another PORT.`);
+    process.exit(1);
+  }
+  console.error("Server startup error:", err);
+  process.exit(1);
+});
+
 connectDB()
   .then(() => {
     startUblastJobs(io);

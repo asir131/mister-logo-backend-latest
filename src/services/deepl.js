@@ -80,7 +80,6 @@ async function translateTexts({ texts, targetLang, sourceLang }) {
   }
 
   const payload = new URLSearchParams();
-  payload.append('auth_key', DEEPL_API_KEY);
   payload.append('target_lang', resolvedTarget);
   if (sourceLang) {
     const resolvedSource = resolveTargetLanguage(sourceLang) || normalizeLanguage(sourceLang);
@@ -90,7 +89,10 @@ async function translateTexts({ texts, targetLang, sourceLang }) {
 
   const res = await fetch(`${DEEPL_API_BASE_URL}/translate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `DeepL-Auth-Key ${DEEPL_API_KEY}`,
+    },
     body: payload.toString(),
   });
   const data = await res.json().catch(() => ({}));

@@ -52,6 +52,7 @@ async function completeProfile(req, res) {
     youtubeUrl,
     facebookUrl,
     spotifyArtistUrl,
+    businessLink,
     autoTranslateEnabled,
     preferredLanguage,
   } = req.body;
@@ -87,6 +88,7 @@ async function completeProfile(req, res) {
       youtubeUrl,
       facebookUrl,
       spotifyArtistUrl,
+      businessLink,
       autoTranslateEnabled:
         autoTranslateEnabled !== undefined
           ? autoTranslateEnabled === true || autoTranslateEnabled === 'true'
@@ -156,6 +158,7 @@ async function updateProfile(req, res) {
     assignIfPresent(updates, req.body, 'youtubeUrl');
     assignIfPresent(updates, req.body, 'facebookUrl');
     assignIfPresent(updates, req.body, 'spotifyArtistUrl');
+    assignIfPresent(updates, req.body, 'businessLink');
     assignIfPresent(
       updates,
       req.body,
