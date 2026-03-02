@@ -8,6 +8,9 @@ const Post = require('../models/Post');
 const Profile = require('../models/Profile');
 const UblastOffer = require('../models/UblastOffer');
 const { uploadMediaBuffer } = require('../services/cloudinary');
+const { compressVideoBufferIfNeeded, MB } = require('../services/videoCompression');
+const VIDEO_COMPRESS_TARGET_BYTES = 95 * MB;
+const VIDEO_MAX_INPUT_BYTES = 300 * MB;
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -193,7 +196,27 @@ async function submitUblast(req, res) {
   }
 
   try {
-    const uploadResult = await uploadMediaBuffer(req.file.buffer, {
+    let uploadBuffer = req.file.buffer;
+    let uploadMimetype = req.file.mimetype;
+    if (mediaType === 'video') {
+      const compressed = await compressVideoBufferIfNeeded({
+        buffer: req.file.buffer,
+        mimetype: req.file.mimetype,
+        inputSize: req.file.size || req.file.buffer.length,
+        targetBytes: VIDEO_COMPRESS_TARGET_BYTES,
+        maxInputBytes: VIDEO_MAX_INPUT_BYTES,
+      });
+      uploadBuffer = compressed.buffer;
+      uploadMimetype = compressed.mimetype;
+      if (compressed.compressed) {
+        console.log('UBlast submission video compressed:', {
+          originalBytes: compressed.originalSize,
+          outputBytes: compressed.outputSize,
+        });
+      }
+    }
+
+    const uploadResult = await uploadMediaBuffer(uploadBuffer, {
       folder: 'unap/ublast-submissions',
       resource_type: 'auto',
     });
@@ -205,13 +228,13 @@ async function submitUblast(req, res) {
       title: title ? title.trim() : undefined,
       content: content ? content.trim() : undefined,
       mediaUrl: uploadResult.secure_url || uploadResult.url,
-      mediaType,
+      mediaType: detectMediaType(uploadMimetype) || mediaType,
     });
 
     return res.status(201).json({ submission: created });
   } catch (err) {
     console.error('UBlast submission error:', err);
-    return res.status(500).json({ error: 'Could not submit UBlast.' });
+    return res.status(err?.status || 500).json({ error: err?.message || 'Could not submit UBlast.' });
   }
 }
 
@@ -359,7 +382,21 @@ async function submitUblastRequest(req, res) {
   }
 
   try {
-    const uploadResult = await uploadMediaBuffer(req.file.buffer, {
+    let uploadBuffer = req.file.buffer;
+    let uploadMimetype = req.file.mimetype;
+    if (mediaType === 'video') {
+      const compressed = await compressVideoBufferIfNeeded({
+        buffer: req.file.buffer,
+        mimetype: req.file.mimetype,
+        inputSize: req.file.size || req.file.buffer.length,
+        targetBytes: VIDEO_COMPRESS_TARGET_BYTES,
+        maxInputBytes: VIDEO_MAX_INPUT_BYTES,
+      });
+      uploadBuffer = compressed.buffer;
+      uploadMimetype = compressed.mimetype;
+    }
+
+    const uploadResult = await uploadMediaBuffer(uploadBuffer, {
       folder: 'unap/ublast-submissions',
       resource_type: 'auto',
     });
@@ -370,14 +407,14 @@ async function submitUblastRequest(req, res) {
       title: title ? title.trim() : undefined,
       content: content ? content.trim() : undefined,
       mediaUrl: uploadResult.secure_url || uploadResult.url,
-      mediaType,
+      mediaType: detectMediaType(uploadMimetype) || mediaType,
       status: 'pending',
     });
 
     return res.status(201).json({ submission: created });
   } catch (err) {
     console.error('UBlast request submission error:', err);
-    return res.status(500).json({ error: 'Could not submit UBlast request.' });
+    return res.status(err?.status || 500).json({ error: err?.message || 'Could not submit UBlast request.' });
   }
 }
 
@@ -460,12 +497,25 @@ async function updateSubmission(req, res) {
     if (!mediaType) {
       return res.status(400).json({ error: 'Unsupported media type.' });
     }
-    const uploadResult = await uploadMediaBuffer(req.file.buffer, {
+    let uploadBuffer = req.file.buffer;
+    let uploadMimetype = req.file.mimetype;
+    if (mediaType === 'video') {
+      const compressed = await compressVideoBufferIfNeeded({
+        buffer: req.file.buffer,
+        mimetype: req.file.mimetype,
+        inputSize: req.file.size || req.file.buffer.length,
+        targetBytes: VIDEO_COMPRESS_TARGET_BYTES,
+        maxInputBytes: VIDEO_MAX_INPUT_BYTES,
+      });
+      uploadBuffer = compressed.buffer;
+      uploadMimetype = compressed.mimetype;
+    }
+    const uploadResult = await uploadMediaBuffer(uploadBuffer, {
       folder: 'unap/ublast-submissions',
       resource_type: 'auto',
     });
     updates.mediaUrl = uploadResult.secure_url || uploadResult.url;
-    updates.mediaType = mediaType;
+    updates.mediaType = detectMediaType(uploadMimetype) || mediaType;
   }
 
   if (Object.keys(updates).length === 0) {

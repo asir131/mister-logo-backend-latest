@@ -114,6 +114,12 @@ app.get("/share/x/:postId", shareXLink);
 // Global error handler fallback
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  if (err?.code === "LIMIT_FILE_SIZE") {
+    return res.status(413).json({
+      error:
+        "File too large. Max upload size: posts/ublasts 300MB, ucuts 100MB.",
+    });
+  }
   const status = err.status || 500;
   const message = err.message || "Internal server error";
   res.status(status).json({ error: message });

@@ -51,6 +51,8 @@ async function completeProfile(req, res) {
     tiktokUrl,
     youtubeUrl,
     facebookUrl,
+    twitterUrl,
+    snapchatUrl,
     spotifyArtistUrl,
     businessLink,
     autoTranslateEnabled,
@@ -87,6 +89,8 @@ async function completeProfile(req, res) {
       tiktokUrl,
       youtubeUrl,
       facebookUrl,
+      twitterUrl,
+      snapchatUrl,
       spotifyArtistUrl,
       businessLink,
       autoTranslateEnabled:
@@ -157,6 +161,8 @@ async function updateProfile(req, res) {
     assignIfPresent(updates, req.body, 'tiktokUrl');
     assignIfPresent(updates, req.body, 'youtubeUrl');
     assignIfPresent(updates, req.body, 'facebookUrl');
+    assignIfPresent(updates, req.body, 'twitterUrl');
+    assignIfPresent(updates, req.body, 'snapchatUrl');
     assignIfPresent(updates, req.body, 'spotifyArtistUrl');
     assignIfPresent(updates, req.body, 'businessLink');
     assignIfPresent(

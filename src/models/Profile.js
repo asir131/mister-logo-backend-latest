@@ -13,6 +13,8 @@ const profileSchema = new mongoose.Schema(
     tiktokUrl: { type: String },
     youtubeUrl: { type: String },
     facebookUrl: { type: String },
+    twitterUrl: { type: String },
+    snapchatUrl: { type: String },
     spotifyArtistUrl: { type: String },
     businessLink: { type: String },
     autoTranslateEnabled: { type: Boolean, default: true },
