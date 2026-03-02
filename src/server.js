@@ -54,18 +54,21 @@ const allowedOrigins = process.env.CORS_ORIGINS
       "https://ungustatory-erringly-ralph.ngrok-free.dev",
       "https://mister-logo-dashboard-vuek.vercel.app",
     ];
-app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "ngrok-skip-browser-warning",
-    ],
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  }),
-);
+const corsOptions = {
+  origin: allowedOrigins,
+  credentials: true,
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "ngrok-skip-browser-warning",
+    "x-admin-key",
+    "Cache-Control",
+    "Pragma",
+  ],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+};
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(
   express.json({
     verify: (req, res, buf) => {
