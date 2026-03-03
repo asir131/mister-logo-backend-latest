@@ -160,30 +160,6 @@ function isUserUblastIneligible(user) {
   return false;
 }
 
-async function enforceUblastShareRequirement(userId) {
-  const now = new Date();
-  const activeUblasts = await UBlast.find({
-    status: 'released',
-    expiresAt: { $gt: now },
-  })
-    .select('_id')
-    .lean();
-
-  if (activeUblasts.length === 0) return null;
-
-  const shared = await Post.find({
-    userId,
-    ublastId: { $in: activeUblasts.map((ublast) => ublast._id) },
-  })
-    .select('ublastId')
-    .lean();
-
-  if (shared.length < 1) {
-    return 'You must share at least one active UBlast before creating new posts.';
-  }
-  return null;
-}
-
 async function createPost(req, res) {
   const validationError = handleValidation(req, res);
   if (validationError !== null) return;
@@ -201,13 +177,6 @@ async function createPost(req, res) {
 
   if (scheduledForInput && scheduledForInput.getTime() <= now.getTime()) {
     return res.status(400).json({ error: 'scheduledFor must be in the future.' });
-  }
-
-  if (!scheduledForInput) {
-    const ublastError = await enforceUblastShareRequirement(userId);
-    if (ublastError) {
-      return res.status(403).json({ error: ublastError });
-    }
   }
 
   if (!postType) {
@@ -596,11 +565,6 @@ async function updatePost(req, res) {
 async function sharePostInternal({ userId, postId, target }) {
   if (!mongoose.isValidObjectId(postId)) {
     return { status: 400, error: 'Invalid post id.' };
-  }
-
-  const ublastError = await enforceUblastShareRequirement(userId);
-  if (ublastError) {
-    return { status: 403, error: ublastError };
   }
 
   const source = await Post.findById(postId).lean();
