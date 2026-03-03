@@ -7,11 +7,15 @@ const Like = require('../models/Like');
 const Comment = require('../models/Comment');
 const SavedPost = require('../models/SavedPost');
 const { uploadMediaBuffer } = require('../services/cloudinary');
+const { compressVideoBufferIfNeeded, MB } = require('../services/videoCompression');
 const { enqueuePostShare } = require('../services/shareQueue');
 const outstandApi = require('../services/outstandApi');
 const { resolveAccountsForUser } = require('../services/outstandAccounts');
 const UBlast = require('../models/UBlast');
 const User = require('../models/User');
+const VIDEO_DIRECT_UPLOAD_LIMIT_BYTES = 100 * MB;
+const VIDEO_COMPRESS_TARGET_BYTES = 95 * MB;
+const VIDEO_MAX_INPUT_BYTES = 300 * MB;
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -227,8 +231,30 @@ async function createPost(req, res) {
       });
     }
     let uploadResult;
+    let uploadBuffer = req.file?.buffer;
+    let uploadMimetype = req.file?.mimetype;
+    let uploadSize = req.file?.size || 0;
     if (hasFile) {
-      uploadResult = await uploadMediaBuffer(req.file.buffer, {
+      if (mediaType === 'video') {
+        const compressed = await compressVideoBufferIfNeeded({
+          buffer: uploadBuffer,
+          mimetype: uploadMimetype,
+          inputSize: uploadSize,
+          targetBytes: VIDEO_COMPRESS_TARGET_BYTES,
+          maxInputBytes: VIDEO_MAX_INPUT_BYTES,
+        });
+        uploadBuffer = compressed.buffer;
+        uploadMimetype = compressed.mimetype;
+        uploadSize = compressed.outputSize;
+        if (compressed.compressed) {
+          console.log('Post video compressed:', {
+            originalBytes: compressed.originalSize,
+            outputBytes: compressed.outputSize,
+            thresholdBytes: VIDEO_DIRECT_UPLOAD_LIMIT_BYTES,
+          });
+        }
+      }
+      uploadResult = await uploadMediaBuffer(uploadBuffer, {
         folder: 'mister/posts',
         resource_type: resolveUploadResourceType(mediaType),
       });
@@ -254,8 +280,8 @@ async function createPost(req, res) {
       mediaUrl: resolvedMediaUrl,
       postType,
       mediaPublicId: hasFile ? uploadResult.public_id : undefined,
-      mimeType: hasFile ? req.file.mimetype : undefined,
-      size: hasFile ? req.file.size : undefined,
+      mimeType: hasFile ? uploadMimetype : undefined,
+      size: hasFile ? uploadSize : undefined,
       shareToFacebook,
       shareToInstagram,
       shareTargets,
@@ -474,18 +500,33 @@ async function updatePost(req, res) {
       return res.status(400).json({ error: 'UClips must be video only.' });
     }
     try {
-      const uploadResult = await uploadMediaBuffer(req.file.buffer, {
+      let uploadBuffer = req.file.buffer;
+      let uploadMimetype = req.file.mimetype;
+      let uploadSize = req.file.size || 0;
+      if (mediaType === 'video') {
+        const compressed = await compressVideoBufferIfNeeded({
+          buffer: uploadBuffer,
+          mimetype: uploadMimetype,
+          inputSize: uploadSize,
+          targetBytes: VIDEO_COMPRESS_TARGET_BYTES,
+          maxInputBytes: VIDEO_MAX_INPUT_BYTES,
+        });
+        uploadBuffer = compressed.buffer;
+        uploadMimetype = compressed.mimetype;
+        uploadSize = compressed.outputSize;
+      }
+      const uploadResult = await uploadMediaBuffer(uploadBuffer, {
         folder: 'mister/posts',
         resource_type: resolveUploadResourceType(mediaType),
       });
       updates.mediaType = mediaType;
       updates.mediaUrl = normalizeMediaUrlForPlayback(uploadResult.secure_url || uploadResult.url, mediaType);
       updates.mediaPublicId = uploadResult.public_id;
-      updates.mimeType = req.file.mimetype;
-      updates.size = req.file.size;
+      updates.mimeType = uploadMimetype;
+      updates.size = uploadSize;
     } catch (err) {
       console.error('Update post upload error:', err);
-      return res.status(500).json({ error: 'Could not upload media.' });
+      return res.status(err?.status || 500).json({ error: err?.message || 'Could not upload media.' });
     }
   }
 
@@ -867,15 +908,30 @@ async function updateScheduledPost(req, res) {
     if (!mediaType) {
       return res.status(400).json({ error: 'Unsupported media type.' });
     }
-    const uploadResult = await uploadMediaBuffer(req.file.buffer, {
+    let uploadBuffer = req.file.buffer;
+    let uploadMimetype = req.file.mimetype;
+    let uploadSize = req.file.size || 0;
+    if (mediaType === 'video') {
+      const compressed = await compressVideoBufferIfNeeded({
+        buffer: uploadBuffer,
+        mimetype: uploadMimetype,
+        inputSize: uploadSize,
+        targetBytes: VIDEO_COMPRESS_TARGET_BYTES,
+        maxInputBytes: VIDEO_MAX_INPUT_BYTES,
+      });
+      uploadBuffer = compressed.buffer;
+      uploadMimetype = compressed.mimetype;
+      uploadSize = compressed.outputSize;
+    }
+    const uploadResult = await uploadMediaBuffer(uploadBuffer, {
       folder: 'mister/posts',
       resource_type: resolveUploadResourceType(mediaType),
     });
     updates.mediaType = mediaType;
     updates.mediaUrl = normalizeMediaUrlForPlayback(uploadResult.secure_url || uploadResult.url, mediaType);
     updates.mediaPublicId = uploadResult.public_id;
-    updates.mimeType = req.file.mimetype;
-    updates.size = req.file.size;
+    updates.mimeType = uploadMimetype;
+    updates.size = uploadSize;
   }
 
   const updated = await Post.findOneAndUpdate(

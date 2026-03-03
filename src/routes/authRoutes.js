@@ -17,6 +17,7 @@ const {
   buildAuthResponse,
 } = require('../controllers/authController');
 const { isFacebookConfigured, isGoogleConfigured } = require('../config/passport');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -36,6 +37,208 @@ function ensureGoogleConfigured(req, res, next) {
 
 const APP_WEB_BASE_URL = process.env.APP_WEB_BASE_URL || 'http://localhost:3000';
 
+const INSTAGRAM_CLIENT_ID = process.env.INSTAGRAM_CLIENT_ID || '';
+const INSTAGRAM_CLIENT_SECRET = process.env.INSTAGRAM_CLIENT_SECRET || '';
+const INSTAGRAM_CALLBACK_URL = process.env.INSTAGRAM_CALLBACK_URL || '';
+const INSTAGRAM_AUTHORIZE_URL = process.env.INSTAGRAM_AUTHORIZE_URL || 'https://www.instagram.com/oauth/authorize';
+const INSTAGRAM_OAUTH_SCOPES = process.env.INSTAGRAM_OAUTH_SCOPES || 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments';
+
+function ensureInstagramConfigured(req, res, next) {
+  if (!INSTAGRAM_CLIENT_ID || !INSTAGRAM_CLIENT_SECRET || !INSTAGRAM_CALLBACK_URL) {
+    return res.status(500).json({ error: 'Instagram auth is not configured.' });
+  }
+  return next();
+}
+
+function toTrimmedString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function mapInstagramProfileToDefaults(profile) {
+  const username = toTrimmedString(profile?.username) || 'instagram_user';
+  const syntheticEmail = `ig_${String(profile?.id || username).toLowerCase()}@no-email.instagram`;
+  return {
+    username,
+    syntheticEmail,
+  };
+}
+
+async function upsertInstagramUser(profile) {
+  const instagramId = toTrimmedString(profile?.id);
+  if (!instagramId) {
+    throw new Error('Instagram profile id missing.');
+  }
+
+  const { username, syntheticEmail } = mapInstagramProfileToDefaults(profile);
+
+  let user = await User.findOne({
+    $or: [{ instagramId }, { email: syntheticEmail }],
+  });
+
+  if (!user) {
+    user = await User.create({
+      name: username,
+      email: syntheticEmail,
+      instagramId,
+      authProvider: 'instagram',
+    });
+    return user;
+  }
+
+  const updates = {};
+  if (!user.instagramId) updates.instagramId = instagramId;
+  if (user.authProvider !== 'instagram') updates.authProvider = 'instagram';
+  if (username && user.name !== username) updates.name = username;
+
+  if (Object.keys(updates).length > 0) {
+    user = await User.findByIdAndUpdate(user._id, { $set: updates }, { new: true });
+  }
+
+  return user;
+}
+
+function buildInstagramAuthorizeUrl(state) {
+  const url = new URL(INSTAGRAM_AUTHORIZE_URL);
+  url.searchParams.set('client_id', INSTAGRAM_CLIENT_ID);
+  url.searchParams.set('redirect_uri', INSTAGRAM_CALLBACK_URL);
+  url.searchParams.set('scope', INSTAGRAM_OAUTH_SCOPES);
+  url.searchParams.set('response_type', 'code');
+  if (state) url.searchParams.set('state', state);
+  return url.toString();
+}
+
+async function resolveInstagramProfile(accessToken, tokenData = {}) {
+  const token = toTrimmedString(accessToken);
+  if (!token) {
+    throw new Error('Instagram access token missing.');
+  }
+
+  const directUserId = toTrimmedString(tokenData?.user_id || tokenData?.id);
+  if (directUserId) {
+    return {
+      id: directUserId,
+      username: toTrimmedString(tokenData?.username) || 'instagram_user',
+    };
+  }
+
+  const profileCandidates = [
+    'https://graph.instagram.com/me?fields=id,username',
+    'https://graph.instagram.com/me?fields=user_id,username',
+    'https://graph.instagram.com/v23.0/me?fields=id,username',
+    'https://graph.facebook.com/v23.0/me?fields=id,name',
+  ];
+
+  let lastProfileError = 'Instagram profile fetch failed.';
+  for (const candidate of profileCandidates) {
+    const requests = [
+      fetch(candidate, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }),
+      fetch(
+        `${candidate}${candidate.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(
+          token,
+        )}`,
+      ),
+    ];
+
+    for (const reqPromise of requests) {
+      const profileRes = await reqPromise;
+
+      let profileData = {};
+      try {
+        profileData = await profileRes.json();
+      } catch {
+        profileData = {};
+      }
+
+      if (profileRes.ok) {
+        const id = toTrimmedString(profileData?.id) || toTrimmedString(profileData?.user_id);
+        if (id) {
+          return {
+            ...profileData,
+            id,
+            username:
+              toTrimmedString(profileData?.username) ||
+              toTrimmedString(profileData?.name) ||
+              'instagram_user',
+          };
+        }
+      }
+
+      lastProfileError =
+        profileData?.error?.message ||
+        profileData?.error_message ||
+        profileData?.error_description ||
+        `Instagram profile fetch failed (${candidate}).`;
+    }
+  }
+
+  throw new Error(lastProfileError);
+}
+
+async function exchangeInstagramCode(code) {
+  const errors = [];
+
+  try {
+    const form = new URLSearchParams();
+    form.set('client_id', INSTAGRAM_CLIENT_ID);
+    form.set('client_secret', INSTAGRAM_CLIENT_SECRET);
+    form.set('grant_type', 'authorization_code');
+    form.set('redirect_uri', INSTAGRAM_CALLBACK_URL);
+    form.set('code', code);
+
+    const tokenRes = await fetch('https://api.instagram.com/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form,
+    });
+
+    const tokenData = await tokenRes.json();
+    const accessToken = toTrimmedString(tokenData?.access_token);
+
+    if (!tokenRes.ok || !accessToken) {
+      throw new Error(
+        tokenData?.error_message ||
+          tokenData?.error_description ||
+          tokenData?.error?.message ||
+          `Instagram token exchange failed. Raw: ${JSON.stringify(tokenData)}`,
+      );
+    }
+
+    return await resolveInstagramProfile(accessToken, tokenData);
+  } catch (error) {
+    errors.push(`api.instagram.com flow failed: ${error?.message || error}`);
+  }
+
+  try {
+    const fbTokenUrl = new URL('https://graph.facebook.com/v23.0/oauth/access_token');
+    fbTokenUrl.searchParams.set('client_id', INSTAGRAM_CLIENT_ID);
+    fbTokenUrl.searchParams.set('client_secret', INSTAGRAM_CLIENT_SECRET);
+    fbTokenUrl.searchParams.set('redirect_uri', INSTAGRAM_CALLBACK_URL);
+    fbTokenUrl.searchParams.set('code', code);
+
+    const fbTokenRes = await fetch(fbTokenUrl.toString());
+    const fbTokenData = await fbTokenRes.json();
+    const fbAccessToken = toTrimmedString(fbTokenData?.access_token);
+
+    if (!fbTokenRes.ok || !fbAccessToken) {
+      throw new Error(
+        fbTokenData?.error?.message ||
+          fbTokenData?.error_message ||
+          fbTokenData?.error_description ||
+          `Facebook token exchange failed. Raw: ${JSON.stringify(fbTokenData)}`,
+      );
+    }
+
+    return await resolveInstagramProfile(fbAccessToken, fbTokenData);
+  } catch (error) {
+    errors.push(`graph.facebook.com flow failed: ${error?.message || error}`);
+  }
+
+  throw new Error(errors.join(' | '));
+}
 function normalizeClientRedirect(value) {
   if (typeof value !== 'string' || !value) return null;
   if (!/^(unap|exp|exps):\/\//i.test(value)) return null;
@@ -144,6 +347,8 @@ function redirectMobileSuccess(res, clientRedirect, payload) {
     name: payload?.user?.name,
     email: payload?.user?.email,
     phoneNumber: payload?.user?.phoneNumber,
+    isFirstLogin: payload?.isFirstLogin,
+    needsProfileCompletion: payload?.needsProfileCompletion,
   });
   return sendMobileRedirectPage(
     res,
@@ -392,6 +597,59 @@ router.get('/google/callback', ensureGoogleConfigured, (req, res, next) => {
   })(req, res, next);
 });
 
+router.get('/instagram', ensureInstagramConfigured, (req, res) => {
+  const clientRedirect = normalizeClientRedirect(req.query.clientRedirect);
+  const state = clientRedirect ? encodeMobileState(clientRedirect) : undefined;
+  const redirectUrl = buildInstagramAuthorizeUrl(state);
+  return res.redirect(redirectUrl);
+});
+
+router.get('/instagram/callback', ensureInstagramConfigured, async (req, res) => {
+  const state = decodeState(req.query.state);
+  const code = toTrimmedString(req.query.code);
+
+  if (!code) {
+    if (state.mode === 'mobile') {
+      return redirectMobileError(res, state.clientRedirect, 'Instagram login failed.');
+    }
+    return res.status(400).json({ error: 'Instagram authorization code missing.' });
+  }
+
+  try {
+    const profile = await exchangeInstagramCode(code);
+    const user = await upsertInstagramUser(profile);
+    const payload = await buildAuthResponse(user);
+
+    if (state.mode === 'mobile') {
+      return redirectMobileSuccess(res, state.clientRedirect, payload);
+    }
+
+    const redirectUrl = `${APP_WEB_BASE_URL}/oauth/instagram?token=${encodeURIComponent(
+      payload.token,
+    )}&refreshToken=${encodeURIComponent(payload.refreshToken)}`;
+    return res.redirect(redirectUrl);
+  } catch (error) {
+    console.error('Instagram login error:', error);
+    if (state.mode === 'mobile') {
+      return redirectMobileError(
+        res,
+        state.clientRedirect,
+        error?.message || 'Could not login with Instagram.',
+      );
+    }
+    return res.status(500).json({ error: 'Could not login with Instagram.' });
+  }
+});
 module.exports = router;
+
+
+
+
+
+
+
+
+
+
 
 

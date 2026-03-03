@@ -16,6 +16,22 @@ function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function calculateAge(dateOfBirth) {
+  if (!dateOfBirth) return null;
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  const dayDiff = today.getDate() - dob.getDate();
+
+  if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+    age -= 1;
+  }
+  return age >= 0 ? age : null;
+}
+
 async function getSuggestedArtists(req, res) {
   const viewerId = req.user.id;
   const limit = parsePaging(req.query.limit, 10, 30);
@@ -157,6 +173,16 @@ async function getUserOverview(req, res) {
       followingId: userId,
     }));
 
+  const safeProfile = profile
+    ? (() => {
+        const { dateOfBirth, ...restProfile } = profile;
+        return {
+          ...restProfile,
+          age: calculateAge(dateOfBirth),
+        };
+      })()
+    : null;
+
   return res.status(200).json({
     user: {
       id: user._id,
@@ -164,7 +190,7 @@ async function getUserOverview(req, res) {
       email: user.email,
       phoneNumber: user.phoneNumber,
     },
-    profile,
+    profile: safeProfile,
     stats: {
       postsCount,
       followersCount,

@@ -58,7 +58,10 @@ router.post(
     urlField('tiktokUrl', 'TikTok URL'),
     urlField('youtubeUrl', 'YouTube URL'),
     urlField('facebookUrl', 'Facebook URL'),
+    urlField('twitterUrl', 'Twitter URL'),
+    urlField('snapchatUrl', 'Snapchat URL'),
     urlField('spotifyArtistUrl', 'Spotify artist URL'),
+    urlField('businessLink', 'Buseness link'),
   ],
   completeProfile,
 );
@@ -81,7 +84,10 @@ router.patch(
     urlField('tiktokUrl', 'TikTok URL'),
     urlField('youtubeUrl', 'YouTube URL'),
     urlField('facebookUrl', 'Facebook URL'),
+    urlField('twitterUrl', 'Twitter URL'),
+    urlField('snapchatUrl', 'Snapchat URL'),
     urlField('spotifyArtistUrl', 'Spotify artist URL'),
+    urlField('businessLink', 'Buseness link'),
   ],
   updateProfile,
 );

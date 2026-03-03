@@ -551,6 +551,100 @@ async function unblockUser(req, res) {
   return res.status(200).json({ blocked: false });
 }
 
+
+function parseBooleanFlag(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes'].includes(normalized)) return true;
+    if (['false', '0', 'no'].includes(normalized)) return false;
+  }
+  return Boolean(value);
+}
+function parseCoordinate(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
+async function updateMyLocationSharing(req, res) {
+  const userId = req.user.id;
+  const isShared = parseBooleanFlag(req.body?.isShared);
+  const latitude = parseCoordinate(req.body?.latitude);
+  const longitude = parseCoordinate(req.body?.longitude);
+
+  if (isShared) {
+    if (latitude === null || longitude === null) {
+      return res.status(400).json({ error: 'Latitude and longitude are required to share location.' });
+    }
+    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      return res.status(400).json({ error: 'Invalid coordinates.' });
+    }
+  }
+
+  const update = isShared
+    ? {
+        'locationSharing.isShared': true,
+        'locationSharing.latitude': latitude,
+        'locationSharing.longitude': longitude,
+        'locationSharing.updatedAt': new Date(),
+      }
+    : {
+        'locationSharing.isShared': false,
+        'locationSharing.latitude': null,
+        'locationSharing.longitude': null,
+        'locationSharing.updatedAt': new Date(),
+      };
+
+  await User.updateOne({ _id: userId }, { $set: update });
+
+  return res.status(200).json({
+    locationSharing: {
+      isShared,
+      latitude: isShared ? latitude : null,
+      longitude: isShared ? longitude : null,
+      updatedAt: new Date().toISOString(),
+    },
+  });
+}
+
+async function getSharedLocations(req, res) {
+  const users = await User.find({
+    'locationSharing.isShared': true,
+    'locationSharing.latitude': { $ne: null },
+    'locationSharing.longitude': { $ne: null },
+    isBanned: { $ne: true },
+  })
+    .select('name locationSharing')
+    .lean();
+
+  if (!users.length) {
+    return res.status(200).json({ locations: [] });
+  }
+
+  const userIds = users.map((entry) => entry._id);
+  const profiles = await Profile.find({ userId: { $in: userIds } })
+    .select('userId displayName username profileImageUrl')
+    .lean();
+  const profileByUserId = new Map(
+    profiles.map((profile) => [String(profile.userId), profile]),
+  );
+
+  const locations = users.map((entry) => {
+    const profile = profileByUserId.get(String(entry._id));
+    return {
+      userId: String(entry._id),
+      name: profile?.displayName || profile?.username || entry.name || 'User',
+      profileImageUrl: profile?.profileImageUrl || null,
+      latitude: Number(entry.locationSharing?.latitude),
+      longitude: Number(entry.locationSharing?.longitude),
+      updatedAt: entry.locationSharing?.updatedAt || null,
+    };
+  });
+
+  return res.status(200).json({ locations });
+}
+
 module.exports = {
   getChatList,
   getConversation,
@@ -559,7 +653,14 @@ module.exports = {
   clearConversation,
   blockUser,
   unblockUser,
+  updateMyLocationSharing,
+  getSharedLocations,
 };
+
+
+
+
+
 
 
 

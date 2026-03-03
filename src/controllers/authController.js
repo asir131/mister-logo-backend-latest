@@ -416,10 +416,18 @@ async function deleteMyAccount(req, res) {
 async function buildAuthResponse(userObj) {
   const token = issueToken(userObj);
   const refreshToken = await issueRefreshToken(userObj._id || userObj.id);
+  const existingProfile = await Profile.findOne({
+    userId: userObj._id || userObj.id,
+  })
+    .select('_id')
+    .lean();
+
   return {
     user: sanitizeUser(userObj),
     token,
     refreshToken,
+    isFirstLogin: false,
+    needsProfileCompletion: !existingProfile,
   };
 }
 
@@ -651,6 +659,7 @@ module.exports = {
   facebookAuthSuccess,
   googleAuthSuccess,
 };
+
 
 
 

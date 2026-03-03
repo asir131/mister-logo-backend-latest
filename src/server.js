@@ -40,6 +40,7 @@ const translateRoutes = require("./routes/translateRoutes");
 const ublastOfferRoutes = require("./routes/ublastOfferRoutes");
 const supportRoutes = require("./routes/supportRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const youtubeRoutes = require("./routes/youtubeRoutes");
 const { startUblastJobs } = require("./jobs/ublastScheduler");
 const { startPostScheduler } = require("./jobs/postScheduler");
 const { sharePage, shareXLink } = require("./controllers/sharePageController");
@@ -99,6 +100,7 @@ app.use("/api/translate", translateRoutes);
 app.use("/api/ublast-offers", ublastOfferRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/youtube", youtubeRoutes);
 app.use("/api/admin/auth", adminAuthRoutes);
 app.use("/api/admin", adminUblastRoutes);
 app.use("/webhooks", webhooksRoutes);
@@ -115,6 +117,12 @@ app.get("/share/x/:postId", shareXLink);
 // Global error handler fallback
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  if (err?.code === "LIMIT_FILE_SIZE") {
+    return res.status(413).json({
+      error:
+        "File too large. Max upload size: posts/ublasts 300MB, ucuts 100MB.",
+    });
+  }
   const status = err.status || 500;
   const message = err.message || "Internal server error";
   res.status(status).json({ error: message });
@@ -189,6 +197,15 @@ io.on("connection", (socket) => {
 });
 
 app.set("io", io);
+server.on("error", (err) => {
+  if (err?.code === "EADDRINUSE") {
+    console.error(`Port ${PORT} is already in use. Stop the existing process or use another PORT.`);
+    process.exit(1);
+  }
+  console.error("Server startup error:", err);
+  process.exit(1);
+});
+
 connectDB()
   .then(() => {
     startUblastJobs(io);
@@ -205,3 +222,4 @@ connectDB()
     console.error("Failed to connect to database:", err);
     process.exit(1);
   });
+
