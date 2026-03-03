@@ -103,7 +103,7 @@ async function getActiveUblasts(req, res) {
   const [totalCount, ublasts] = await Promise.all([
     UBlast.countDocuments(baseMatch),
     UBlast.find(baseMatch)
-      .sort({ releasedAt: -1 })
+      .sort({ releasedAt: -1, _id: -1 })
       .skip(skip)
       .limit(limit)
       .lean(),
