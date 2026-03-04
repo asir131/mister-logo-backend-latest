@@ -4,6 +4,7 @@ const UBlast = require("../models/UBlast");
 const TrendingPlacement = require("../models/TrendingPlacement");
 const Post = require("../models/Post");
 const Profile = require("../models/Profile");
+const User = require("../models/User");
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
@@ -15,6 +16,54 @@ function parsePaging(value, fallback, max) {
 
 function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function attachAuthorProfile(posts) {
+  if (!Array.isArray(posts) || posts.length === 0) return [];
+
+  const userIds = Array.from(
+    new Set(
+      posts
+        .map((post) => String(post?.userId || ""))
+        .filter((id) => mongoose.isValidObjectId(id)),
+    ),
+  ).map((id) => new mongoose.Types.ObjectId(id));
+
+  if (userIds.length === 0) return posts;
+
+  const [users, profiles] = await Promise.all([
+    User.find({ _id: { $in: userIds } }).select("name email").lean(),
+    Profile.find({ userId: { $in: userIds } })
+      .select("userId username displayName role profileImageUrl")
+      .lean(),
+  ]);
+
+  const userById = new Map(users.map((user) => [String(user._id), user]));
+  const profileByUserId = new Map(
+    profiles.map((profile) => [String(profile.userId), profile]),
+  );
+
+  return posts.map((post) => {
+    const userId = String(post?.userId || "");
+    const author = userById.get(userId);
+    const profile = profileByUserId.get(userId);
+
+    return {
+      ...post,
+      author: {
+        id: author?._id || post?.author?.id || userId || null,
+        name: author?.name || post?.author?.name || "",
+        email: author?.email || post?.author?.email || "",
+      },
+      profile: {
+        username: profile?.username || post?.profile?.username || "",
+        displayName: profile?.displayName || post?.profile?.displayName || "",
+        role: profile?.role || post?.profile?.role || "",
+        profileImageUrl:
+          profile?.profileImageUrl || post?.profile?.profileImageUrl || "",
+      },
+    };
+  });
 }
 
 async function getTrending(req, res) {
@@ -122,7 +171,7 @@ async function getTrending(req, res) {
   const topFilter = activeUblastIds.length
     ? { ublastId: { $in: activeUblastIds }, ...visibilityMatch, ...postSearchMatch }
     : null;
-  const [topTotalCount, topPosts] = topFilter
+  const [topTotalCount, topPostsRaw] = topFilter
     ? await Promise.all([
         Post.countDocuments(topFilter),
         Post.find(topFilter)
@@ -132,6 +181,7 @@ async function getTrending(req, res) {
           .lean(),
       ])
     : [0, []];
+  const topPosts = await attachAuthorProfile(topPostsRaw);
 
   const manualPlacements = await TrendingPlacement.find({
     section: "manual",
@@ -148,13 +198,14 @@ async function getTrending(req, res) {
   const manualPostIds = pagedManualPlacements.map(
     (placement) => placement.postId,
   );
-  const manualPosts = manualPostIds.length
+  const manualPostsRaw = manualPostIds.length
     ? await Post.find({
         _id: { $in: manualPostIds },
         ...visibilityMatch,
         ...postSearchMatch,
       }).lean()
     : [];
+  const manualPosts = await attachAuthorProfile(manualPostsRaw);
 
   const manualById = new Map(
     manualPosts.map((post) => [post._id.toString(), post]),
@@ -213,6 +264,15 @@ async function getTrending(req, res) {
       },
     },
     { $unwind: "$author" },
+    {
+      $lookup: {
+        from: "profiles",
+        localField: "userId",
+        foreignField: "userId",
+        as: "profile",
+      },
+    },
+    { $unwind: { path: "$profile", preserveNullAndEmptyArrays: true } },
     {
       $match: {
         "author.isBlocked": { $ne: true },
@@ -303,6 +363,17 @@ async function getTrending(req, res) {
         commentCount: 1,
         saveCount: 1,
         viewCount: 1,
+        author: {
+          id: "$author._id",
+          name: "$author.name",
+          email: "$author.email",
+        },
+        profile: {
+          username: "$profile.username",
+          displayName: "$profile.displayName",
+          role: "$profile.role",
+          profileImageUrl: "$profile.profileImageUrl",
+        },
       },
     },
   ];
@@ -323,6 +394,17 @@ async function getTrending(req, res) {
         commentCount: 1,
         saveCount: 1,
         viewCount: 1,
+        author: {
+          id: "$author._id",
+          name: "$author.name",
+          email: "$author.email",
+        },
+        profile: {
+          username: "$profile.username",
+          displayName: "$profile.displayName",
+          role: "$profile.role",
+          profileImageUrl: "$profile.profileImageUrl",
+        },
       },
     },
   ];
