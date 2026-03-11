@@ -7,6 +7,13 @@ function getTelnyxConfig() {
     TELNYX_MESSAGING_PROFILE_ID,
   } = process.env;
 
+  // Log minimal config presence for debugging (no secrets).
+  console.log('[Telnyx] Config check', {
+    hasApiKey: Boolean(TELNYX_API_KEY),
+    fromNumber: TELNYX_FROM_NUMBER || null,
+    messagingProfileId: TELNYX_MESSAGING_PROFILE_ID || null,
+  });
+
   if (!TELNYX_API_KEY) {
     const error = new Error('Telnyx API key is not configured.');
     error.status = 500;
@@ -61,6 +68,10 @@ async function sendSms({ to, body }) {
   }
 
   if (!response.ok) {
+    console.error('[Telnyx] SMS request failed', {
+      status: response.status,
+      body: raw,
+    });
     const message =
       parsed?.errors?.[0]?.detail ||
       parsed?.errors?.[0]?.title ||
