@@ -7,7 +7,7 @@ const UcutComment = require('../models/UcutComment');
 const Follow = require('../models/Follow');
 const Profile = require('../models/Profile');
 const User = require('../models/User');
-const { uploadMediaBuffer } = require('../services/cloudinary');
+const { uploadMediaBuffer } = require('../services/mediaStorage');
 const { splitMedia, DEFAULT_SEGMENT_SECONDS } = require('../services/mediaSplit');
 const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 
@@ -107,6 +107,7 @@ async function createUcut(req, res) {
         const uploadResult = await uploadMediaBuffer(req.file.buffer, {
           folder: 'unap/ucuts',
           resource_type: 'image',
+          contentType: req.file.mimetype,
         });
 
         const created = await Ucut.create({
@@ -121,6 +122,7 @@ async function createUcut(req, res) {
 
         return res.status(201).json({ ucut: created, wasSplit: false });
       } catch (err) {
+        console.error('UCut image upload error:', err?.message || err);
         return res.status(500).json({ error: 'Could not upload image.' });
       }
     }
@@ -149,6 +151,7 @@ async function createUcut(req, res) {
       const uploadResult = await uploadMediaBuffer(segmentBuffer, {
         folder: 'unap/ucuts',
         resource_type: uploadResourceType,
+        contentType: req.file.mimetype,
       });
       segmentUploads.push({
         url: uploadResult.secure_url || uploadResult.url,
@@ -519,3 +522,4 @@ module.exports = {
   addComment,
   deleteUcut,
 };
+

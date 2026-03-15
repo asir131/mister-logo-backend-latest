@@ -6,7 +6,7 @@ const Profile = require('../models/Profile');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Block = require('../models/Block');
-const { uploadMediaBuffer } = require('../services/cloudinary');
+const { uploadMediaBuffer } = require('../services/mediaStorage');
 const { getOnlineUserIds } = require('../store/onlineUsers');
 const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 
@@ -369,6 +369,7 @@ async function sendMessage(req, res) {
     const uploadResult = await uploadMediaBuffer(file.buffer, {
       folder: 'mister-logo/chat',
       resource_type: 'auto',
+      contentType: file.mimetype,
     });
     mediaUrl = uploadResult.secure_url || uploadResult.url;
     mediaMime = file.mimetype;
@@ -656,6 +657,7 @@ module.exports = {
   updateMyLocationSharing,
   getSharedLocations,
 };
+
 
 
 

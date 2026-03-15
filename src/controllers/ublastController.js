@@ -7,7 +7,7 @@ const User = require('../models/User');
 const Post = require('../models/Post');
 const Profile = require('../models/Profile');
 const UblastOffer = require('../models/UblastOffer');
-const { uploadMediaBuffer } = require('../services/cloudinary');
+const { uploadMediaBuffer } = require('../services/mediaStorage');
 const { compressVideoBufferIfNeeded, MB } = require('../services/videoCompression');
 const VIDEO_COMPRESS_TARGET_BYTES = 95 * MB;
 const VIDEO_MAX_INPUT_BYTES = 300 * MB;
@@ -219,6 +219,7 @@ async function submitUblast(req, res) {
     const uploadResult = await uploadMediaBuffer(uploadBuffer, {
       folder: 'unap/ublast-submissions',
       resource_type: 'auto',
+      contentType: uploadMimetype,
     });
 
     const created = await UBlastSubmission.create({
@@ -399,6 +400,7 @@ async function submitUblastRequest(req, res) {
     const uploadResult = await uploadMediaBuffer(uploadBuffer, {
       folder: 'unap/ublast-submissions',
       resource_type: 'auto',
+      contentType: uploadMimetype,
     });
 
     const created = await UBlastSubmission.create({
@@ -513,6 +515,7 @@ async function updateSubmission(req, res) {
     const uploadResult = await uploadMediaBuffer(uploadBuffer, {
       folder: 'unap/ublast-submissions',
       resource_type: 'auto',
+      contentType: uploadMimetype,
     });
     updates.mediaUrl = uploadResult.secure_url || uploadResult.url;
     updates.mediaType = detectMediaType(uploadMimetype) || mediaType;
@@ -541,6 +544,7 @@ module.exports = {
   shareUblast,
   shareUblastInternal,
 };
+
 
 
 

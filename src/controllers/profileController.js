@@ -1,7 +1,7 @@
 const { validationResult } = require('express-validator');
 
 const Profile = require('../models/Profile');
-const { uploadImageBuffer } = require('../services/cloudinary');
+const { uploadImageBuffer } = require('../services/mediaStorage');
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -32,6 +32,7 @@ async function uploadProfileImage(file, userId) {
     public_id: `profile_${userId}`,
     overwrite: true,
     resource_type: 'image',
+    contentType: file.mimetype,
   });
   return result.secure_url || result.url;
 }
@@ -226,3 +227,4 @@ module.exports = {
   updateProfile,
   getProfile,
 };
+

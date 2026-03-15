@@ -13,6 +13,8 @@ router.post(
     body('folder').optional({ nullable: true }).isString(),
     body('resourceType').optional({ nullable: true }).isIn(['image', 'video', 'raw']),
     body('publicId').optional({ nullable: true }).isString(),
+    body('contentType').optional({ nullable: true }).isString(),
+    body('fileName').optional({ nullable: true }).isString(),
   ],
   signUpload,
 );

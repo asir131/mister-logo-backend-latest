@@ -3,6 +3,8 @@
 
 # Dependencies
 node_modules
+.env
+secrets/
 
 # Logs
 npm-debug.log*

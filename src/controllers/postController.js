@@ -6,7 +6,7 @@ const Profile = require('../models/Profile');
 const Like = require('../models/Like');
 const Comment = require('../models/Comment');
 const SavedPost = require('../models/SavedPost');
-const { uploadMediaBuffer } = require('../services/cloudinary');
+const { uploadMediaBuffer } = require('../services/mediaStorage');
 const { compressVideoBufferIfNeeded, MB } = require('../services/videoCompression');
 const { enqueuePostShare } = require('../services/shareQueue');
 const outstandApi = require('../services/outstandApi');
@@ -257,6 +257,7 @@ async function createPost(req, res) {
       uploadResult = await uploadMediaBuffer(uploadBuffer, {
         folder: 'mister/posts',
         resource_type: resolveUploadResourceType(mediaType),
+        contentType: uploadMimetype,
       });
       resolvedMediaUrl = normalizeMediaUrlForPlayback(uploadResult.secure_url || uploadResult.url, mediaType);
     }
@@ -518,6 +519,7 @@ async function updatePost(req, res) {
       const uploadResult = await uploadMediaBuffer(uploadBuffer, {
         folder: 'mister/posts',
         resource_type: resolveUploadResourceType(mediaType),
+        contentType: uploadMimetype,
       });
       updates.mediaType = mediaType;
       updates.mediaUrl = normalizeMediaUrlForPlayback(uploadResult.secure_url || uploadResult.url, mediaType);
@@ -926,6 +928,7 @@ async function updateScheduledPost(req, res) {
     const uploadResult = await uploadMediaBuffer(uploadBuffer, {
       folder: 'mister/posts',
       resource_type: resolveUploadResourceType(mediaType),
+      contentType: uploadMimetype,
     });
     updates.mediaType = mediaType;
     updates.mediaUrl = normalizeMediaUrlForPlayback(uploadResult.secure_url || uploadResult.url, mediaType);
@@ -1606,3 +1609,4 @@ module.exports = {
   listMyPosts,
   listUclips,
 };
+

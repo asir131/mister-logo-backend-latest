@@ -9,7 +9,7 @@ const Like = require('../models/Like');
 const Comment = require('../models/Comment');
 const User = require('../models/User');
 const UblastOffer = require('../models/UblastOffer');
-const { uploadMediaBuffer } = require('../services/cloudinary');
+const { uploadMediaBuffer } = require('../services/mediaStorage');
 const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -70,6 +70,7 @@ async function createUblast(req, res) {
     const uploadResult = await uploadMediaBuffer(req.file.buffer, {
       folder: 'unap/ublasts',
       resource_type: 'auto',
+      contentType: req.file.mimetype,
     });
     mediaUrl = uploadResult.secure_url || uploadResult.url;
   }
@@ -604,6 +605,7 @@ async function updateUblast(req, res) {
     const uploadResult = await uploadMediaBuffer(req.file.buffer, {
       folder: 'unap/ublasts',
       resource_type: 'auto',
+      contentType: req.file.mimetype,
     });
     updates.mediaUrl = uploadResult.secure_url || uploadResult.url;
     updates.mediaType = mediaType;
@@ -652,6 +654,7 @@ module.exports = {
   updateUblast,
   deleteUblast,
 };
+
 
 
 

@@ -289,8 +289,70 @@ async function getUserPosts(req, res) {
   });
 }
 
+async function searchUsers(req, res) {
+  const searchText =
+    typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const limit = parsePaging(req.query.limit, 8, 20);
+
+  if (!searchText) {
+    return res.status(200).json({ users: [] });
+  }
+
+  const searchRegex = new RegExp(escapeRegex(searchText), 'i');
+
+  const users = await User.aggregate([
+    {
+      $match: {
+        isBlocked: { $ne: true },
+        isBanned: { $ne: true },
+      },
+    },
+    {
+      $lookup: {
+        from: 'profiles',
+        localField: '_id',
+        foreignField: 'userId',
+        as: 'profile',
+      },
+    },
+    { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+    {
+      $addFields: {
+        displayName: {
+          $ifNull: ['$profile.displayName', '$name'],
+        },
+        username: '$profile.username',
+        profileImageUrl: '$profile.profileImageUrl',
+      },
+    },
+    {
+      $match: {
+        $or: [
+          { name: searchRegex },
+          { displayName: searchRegex },
+          { username: searchRegex },
+        ],
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        userId: '$_id',
+        name: '$displayName',
+        username: 1,
+        profileImageUrl: 1,
+      },
+    },
+    { $sort: { name: 1, username: 1 } },
+    { $limit: limit },
+  ]);
+
+  return res.status(200).json({ users });
+}
+
 module.exports = {
   getSuggestedArtists,
   getUserOverview,
   getUserPosts,
+  searchUsers,
 };
