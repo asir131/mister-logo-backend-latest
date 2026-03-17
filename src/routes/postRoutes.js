@@ -15,6 +15,7 @@ const {
   deleteCancelledScheduledPost,
   listMyPosts,
   listUclips,
+  requestPreview,
 } = require('../controllers/postController');
 
 const upload = multer({
@@ -84,6 +85,7 @@ router.patch(
 router.get('/scheduled', authenticate, listScheduledPosts);
 router.get('/mine', authenticate, listMyPosts);
 router.get('/uclips', authenticate, listUclips);
+router.post('/:postId/preview', authenticate, requestPreview);
 router.get('/:postId', authenticate, getPostById);
 router.patch(
   '/:postId/scheduled',

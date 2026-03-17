@@ -19,6 +19,7 @@ const postSchema = new mongoose.Schema(
     description: { type: String },
     mediaType: { type: String, enum: ['image', 'video', 'audio'], required: true },
     mediaUrl: { type: String, required: true },
+    mediaPreviewUrl: { type: String },
     mediaPublicId: { type: String },
     mimeType: { type: String },
     size: { type: Number },

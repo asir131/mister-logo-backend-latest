@@ -4,8 +4,8 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const MB = 1024 * 1024;
-const DEFAULT_TARGET_BYTES = 95 * MB;
-const DEFAULT_MAX_INPUT_BYTES = 300 * MB;
+const DEFAULT_TARGET_BYTES = 200 * MB;
+const DEFAULT_MAX_INPUT_BYTES = 700 * MB;
 
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
@@ -58,7 +58,7 @@ async function transcodeToTarget({
   const audioKbps = 96;
   const muxOverheadKbps = 20;
   const totalKbps = Math.floor(((targetBytes * 8) / Math.max(durationSeconds, 1)) / 1000);
-  const videoKbps = Math.max(250, totalKbps - audioKbps - muxOverheadKbps);
+  const videoKbps = Math.max(600, totalKbps - audioKbps - muxOverheadKbps);
 
   const args = [
     '-y',
@@ -163,4 +163,3 @@ module.exports = {
   DEFAULT_TARGET_BYTES,
   DEFAULT_MAX_INPUT_BYTES,
 };
-

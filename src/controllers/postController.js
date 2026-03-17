@@ -8,14 +8,17 @@ const Comment = require('../models/Comment');
 const SavedPost = require('../models/SavedPost');
 const { uploadMediaBuffer } = require('../services/mediaStorage');
 const { compressVideoBufferIfNeeded, MB } = require('../services/videoCompression');
+const { createPreviewFromUrl } = require('../services/videoPreview');
+const { enqueuePreviewTask } = require('../services/previewQueue');
+const { createSignedReadUrlFromUrl, createSignedReadUrlFromObjectName } = require('../services/gcsStorage');
 const { enqueuePostShare } = require('../services/shareQueue');
 const outstandApi = require('../services/outstandApi');
 const { resolveAccountsForUser } = require('../services/outstandAccounts');
 const UBlast = require('../models/UBlast');
 const User = require('../models/User');
 const VIDEO_DIRECT_UPLOAD_LIMIT_BYTES = 100 * MB;
-const VIDEO_COMPRESS_TARGET_BYTES = 95 * MB;
-const VIDEO_MAX_INPUT_BYTES = 300 * MB;
+const VIDEO_COMPRESS_TARGET_BYTES = 200 * MB;
+const VIDEO_MAX_INPUT_BYTES = 700 * MB;
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -65,6 +68,56 @@ function toPlayableCloudinaryVideoUrl(url) {
 function normalizeMediaUrlForPlayback(mediaUrl, mediaType) {
   if (mediaType !== 'video') return mediaUrl;
   return toPlayableCloudinaryVideoUrl(mediaUrl);
+}
+
+function extractObjectNameFromProxyUrl(url) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(String(url));
+    const path = parsed.pathname || '';
+    const marker = '/media/';
+    const idx = path.indexOf(marker);
+    if (idx === -1) return null;
+    const objectPath = path.slice(idx + marker.length);
+    return objectPath ? decodeURIComponent(objectPath) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function generateVideoPreview(postId, mediaUrl) {
+  if (!postId || !mediaUrl) return;
+  try {
+    let sourceUrl = mediaUrl;
+    try {
+      const proxyObjectName = extractObjectNameFromProxyUrl(mediaUrl);
+      if (proxyObjectName) {
+        const signed = await createSignedReadUrlFromObjectName(proxyObjectName, 20);
+        sourceUrl = signed.readUrl;
+      } else {
+        const signed = await createSignedReadUrlFromUrl(mediaUrl, 20);
+        sourceUrl = signed.readUrl;
+      }
+    } catch (err) {
+      // Non-GCS URLs fall back to the original mediaUrl.
+    }
+
+    const previewBuffer = await createPreviewFromUrl({
+      sourceUrl,
+      width: 480,
+    });
+    const previewUpload = await uploadMediaBuffer(previewBuffer, {
+      folder: 'mister/posts-previews',
+      resource_type: 'video',
+      contentType: 'video/mp4',
+    });
+    await Post.updateOne(
+      { _id: postId },
+      { $set: { mediaPreviewUrl: previewUpload.secure_url || previewUpload.url } },
+    );
+  } catch (err) {
+    console.error('Post preview generation failed:', err?.message || err);
+  }
 }
 function parseScheduledFor(value) {
   if (!value) return null;
@@ -189,6 +242,7 @@ async function createPost(req, res) {
 
   const hasFile = Boolean(req.file);
   const mediaUrl = req.body.mediaUrl;
+  const mediaPreviewUrl = req.body.mediaPreviewUrl;
   const mediaType = hasFile ? detectMediaType(req.file.mimetype) : req.body.mediaType;
 
   if (!hasFile && (!mediaUrl || !mediaType)) {
@@ -279,6 +333,7 @@ async function createPost(req, res) {
       description,
       mediaType,
       mediaUrl: resolvedMediaUrl,
+      mediaPreviewUrl: mediaPreviewUrl || undefined,
       postType,
       mediaPublicId: hasFile ? uploadResult.public_id : undefined,
       mimeType: hasFile ? uploadMimetype : undefined,
@@ -292,6 +347,13 @@ async function createPost(req, res) {
       scheduledFor: isScheduled ? scheduledForInput : undefined,
       publishedAt: isScheduled ? undefined : now,
     });
+
+    if (mediaType === 'video' && !created.mediaPreviewUrl) {
+      enqueuePreviewTask(
+        () => generateVideoPreview(created._id, created.mediaUrl),
+        { priority: true }
+      );
+    }
 
     if (isScheduled && shareTargets.length > 0) {
       try {
@@ -526,6 +588,12 @@ async function updatePost(req, res) {
       updates.mediaPublicId = uploadResult.public_id;
       updates.mimeType = uploadMimetype;
       updates.size = uploadSize;
+    if (mediaType === 'video') {
+      enqueuePreviewTask(
+        () => generateVideoPreview(post._id, updates.mediaUrl),
+        { priority: true }
+      );
+    }
     } catch (err) {
       console.error('Update post upload error:', err);
       return res.status(err?.status || 500).json({ error: err?.message || 'Could not upload media.' });
@@ -930,6 +998,13 @@ async function updateScheduledPost(req, res) {
       resource_type: resolveUploadResourceType(mediaType),
       contentType: uploadMimetype,
     });
+
+    if (mediaType === 'video' && !created.mediaPreviewUrl) {
+      enqueuePreviewTask(
+        () => generateVideoPreview(created._id, created.mediaUrl),
+        { priority: true }
+      );
+    }
     updates.mediaType = mediaType;
     updates.mediaUrl = normalizeMediaUrlForPlayback(uploadResult.secure_url || uploadResult.url, mediaType);
     updates.mediaPublicId = uploadResult.public_id;
@@ -1132,6 +1207,7 @@ async function listMyPosts(req, res) {
           description: 1,
           mediaType: 1,
           mediaUrl: 1,
+          mediaPreviewUrl: 1,
           ublastId: 1,
           sharedFromPostId: 1,
           postType: 1,
@@ -1337,6 +1413,7 @@ async function listUclips(req, res) {
           description: 1,
           mediaType: 1,
           mediaUrl: 1,
+          mediaPreviewUrl: 1,
           postType: 1,
           createdAt: 1,
           viewCount: 1,
@@ -1524,6 +1601,7 @@ async function getPostById(req, res) {
         description: 1,
         mediaType: 1,
         mediaUrl: 1,
+        mediaPreviewUrl: 1,
         ublastId: 1,
         createdAt: 1,
         viewCount: 1,
@@ -1595,6 +1673,34 @@ async function deleteCancelledScheduledPost(req, res) {
   return res.status(200).json({ message: 'Cancelled scheduled post deleted.' });
 }
 
+async function requestPreview(req, res) {
+  const { postId } = req.params;
+  if (!mongoose.isValidObjectId(postId)) {
+    return res.status(400).json({ error: 'Invalid post id.' });
+  }
+
+  const post = await Post.findById(postId).select('mediaType mediaUrl mediaPreviewUrl').lean();
+  if (!post) {
+    return res.status(404).json({ error: 'Post not found.' });
+  }
+  if (post.mediaType !== 'video') {
+    return res.status(400).json({ error: 'Preview is only available for video posts.' });
+  }
+
+  if (post.mediaPreviewUrl) {
+    return res.status(200).json({
+      status: 'ready',
+      mediaPreviewUrl: post.mediaPreviewUrl,
+    });
+  }
+
+  enqueuePreviewTask(
+    () => generateVideoPreview(postId, post.mediaUrl),
+    { priority: true }
+  );
+  return res.status(202).json({ status: 'processing' });
+}
+
 module.exports = {
   createPost,
   deletePost,
@@ -1608,5 +1714,6 @@ module.exports = {
   deleteCancelledScheduledPost,
   listMyPosts,
   listUclips,
+  requestPreview,
 };
 

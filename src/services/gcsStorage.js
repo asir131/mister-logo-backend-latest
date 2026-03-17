@@ -57,6 +57,22 @@ function buildPublicUrl(objectName) {
   return `https://storage.googleapis.com/${BUCKET_NAME}/${encodeURI(objectName)}`;
 }
 
+function extractObjectNameFromUrl(url) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(String(url));
+    const pathname = parsed.pathname || '';
+    // Expect /bucket/objectName
+    const parts = pathname.split('/').filter(Boolean);
+    if (parts.length < 2) return null;
+    const bucket = parts.shift();
+    if (bucket !== BUCKET_NAME) return null;
+    return parts.join('/');
+  } catch {
+    return null;
+  }
+}
+
 async function uploadBuffer(buffer, options = {}) {
   const storage = getStorageClient();
   const bucket = storage.bucket(BUCKET_NAME);
@@ -120,9 +136,74 @@ async function createSignedUploadUrl(options = {}) {
   };
 }
 
+async function createResumableUploadUrl(options = {}) {
+  const storage = getStorageClient();
+  const bucket = storage.bucket(BUCKET_NAME);
+  const objectName = buildObjectName(options);
+  const file = bucket.file(objectName);
+  const contentType =
+    options.contentType || options.mimetype || options.content_type || 'application/octet-stream';
+  const cacheControl = options.cacheControl || 'public, max-age=31536000';
+
+  const [uploadUrl] = await file.createResumableUpload({
+    metadata: {
+      contentType,
+      cacheControl,
+    },
+  });
+
+  return {
+    uploadUrl,
+    objectName,
+    bucket: BUCKET_NAME,
+    contentType,
+    publicUrl: buildPublicUrl(objectName),
+  };
+}
+
+async function createSignedReadUrlFromUrl(url, ttlMinutes = 15) {
+  const objectName = extractObjectNameFromUrl(url);
+  if (!objectName) {
+    throw new Error('Unable to derive object name from URL.');
+  }
+  const storage = getStorageClient();
+  const bucket = storage.bucket(BUCKET_NAME);
+  const file = bucket.file(objectName);
+  const expiresAt = Date.now() + ttlMinutes * 60 * 1000;
+
+  const [readUrl] = await file.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: expiresAt,
+  });
+
+  return { readUrl, objectName, bucket: BUCKET_NAME, expiresAt };
+}
+
+async function createSignedReadUrlFromObjectName(objectName, ttlMinutes = 15) {
+  if (!objectName) {
+    throw new Error('objectName is required.');
+  }
+  const storage = getStorageClient();
+  const bucket = storage.bucket(BUCKET_NAME);
+  const file = bucket.file(objectName);
+  const expiresAt = Date.now() + ttlMinutes * 60 * 1000;
+
+  const [readUrl] = await file.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: expiresAt,
+  });
+
+  return { readUrl, objectName, bucket: BUCKET_NAME, expiresAt };
+}
+
 module.exports = {
   uploadImageBuffer: uploadBuffer,
   uploadMediaBuffer: uploadBuffer,
   createSignedUploadUrl,
+  createSignedReadUrlFromUrl,
+  createSignedReadUrlFromObjectName,
+  createResumableUploadUrl,
   getStorageClient,
 };

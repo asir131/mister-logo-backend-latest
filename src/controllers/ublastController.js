@@ -9,8 +9,8 @@ const Profile = require('../models/Profile');
 const UblastOffer = require('../models/UblastOffer');
 const { uploadMediaBuffer } = require('../services/mediaStorage');
 const { compressVideoBufferIfNeeded, MB } = require('../services/videoCompression');
-const VIDEO_COMPRESS_TARGET_BYTES = 95 * MB;
-const VIDEO_MAX_INPUT_BYTES = 300 * MB;
+const VIDEO_COMPRESS_TARGET_BYTES = 200 * MB;
+const VIDEO_MAX_INPUT_BYTES = 700 * MB;
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -30,6 +30,15 @@ function detectMediaType(mimetype) {
   if (mimetype.startsWith('video/')) return 'video';
   if (mimetype.startsWith('audio/')) return 'audio';
   return null;
+}
+
+function isValidHttpUrl(value) {
+  try {
+    const parsed = new URL(String(value || '').trim());
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 function isBlockedUntil(dateValue) {
@@ -162,7 +171,14 @@ async function submitUblast(req, res) {
     return res.status(400).json({ error: 'Invalid UBlast id.' });
   }
 
-  if (!req.file) {
+  const remoteMediaUrl = req.body?.mediaUrl ? String(req.body.mediaUrl).trim() : '';
+  const remoteMediaTypeRaw = req.body?.mediaType ? String(req.body.mediaType).trim() : '';
+  const remoteMediaType = ['image', 'video', 'audio'].includes(remoteMediaTypeRaw)
+    ? remoteMediaTypeRaw
+    : '';
+  const hasRemoteMedia = Boolean(remoteMediaUrl && remoteMediaType);
+
+  if (!req.file && !hasRemoteMedia) {
     return res.status(400).json({ error: 'Submission media file is required.' });
   }
 
@@ -185,9 +201,17 @@ async function submitUblast(req, res) {
     return res.status(400).json({ error: 'UBlast is not active.' });
   }
 
-  const mediaType = detectMediaType(req.file.mimetype);
-  if (!mediaType) {
-    return res.status(400).json({ error: 'Unsupported media type.' });
+  let mediaType = null;
+  if (req.file) {
+    mediaType = detectMediaType(req.file.mimetype);
+    if (!mediaType) {
+      return res.status(400).json({ error: 'Unsupported media type.' });
+    }
+  } else if (hasRemoteMedia) {
+    if (!isValidHttpUrl(remoteMediaUrl)) {
+      return res.status(400).json({ error: 'mediaUrl must be a valid http/https URL.' });
+    }
+    mediaType = remoteMediaType;
   }
 
   const exists = await UBlastSubmission.exists({ ublastId, userId });
@@ -196,6 +220,20 @@ async function submitUblast(req, res) {
   }
 
   try {
+    if (!req.file && hasRemoteMedia) {
+      const created = await UBlastSubmission.create({
+        ublastId,
+        userId,
+        proposedDate: proposedDate ? new Date(proposedDate) : undefined,
+        title: title ? title.trim() : undefined,
+        content: content ? content.trim() : undefined,
+        mediaUrl: remoteMediaUrl,
+        mediaType,
+      });
+
+      return res.status(201).json({ submission: created });
+    }
+
     let uploadBuffer = req.file.buffer;
     let uploadMimetype = req.file.mimetype;
     if (mediaType === 'video') {
@@ -363,7 +401,14 @@ async function submitUblastRequest(req, res) {
   const { id: userId } = req.user;
   const { proposedDate, title, content } = req.body;
 
-  if (!req.file) {
+  const remoteMediaUrl = req.body?.mediaUrl ? String(req.body.mediaUrl).trim() : '';
+  const remoteMediaTypeRaw = req.body?.mediaType ? String(req.body.mediaType).trim() : '';
+  const remoteMediaType = ['image', 'video', 'audio'].includes(remoteMediaTypeRaw)
+    ? remoteMediaTypeRaw
+    : '';
+  const hasRemoteMedia = Boolean(remoteMediaUrl && remoteMediaType);
+
+  if (!req.file && !hasRemoteMedia) {
     return res.status(400).json({ error: 'Submission media file is required.' });
   }
 
@@ -377,12 +422,34 @@ async function submitUblastRequest(req, res) {
     return res.status(403).json({ error: 'You are blocked from UBlast submissions.' });
   }
 
-  const mediaType = detectMediaType(req.file.mimetype);
-  if (!mediaType) {
-    return res.status(400).json({ error: 'Unsupported media type.' });
+  let mediaType = null;
+  if (req.file) {
+    mediaType = detectMediaType(req.file.mimetype);
+    if (!mediaType) {
+      return res.status(400).json({ error: 'Unsupported media type.' });
+    }
+  } else if (hasRemoteMedia) {
+    if (!isValidHttpUrl(remoteMediaUrl)) {
+      return res.status(400).json({ error: 'mediaUrl must be a valid http/https URL.' });
+    }
+    mediaType = remoteMediaType;
   }
 
   try {
+    if (!req.file && hasRemoteMedia) {
+      const created = await UBlastSubmission.create({
+        userId,
+        proposedDate: proposedDate ? new Date(proposedDate) : undefined,
+        title: title ? title.trim() : undefined,
+        content: content ? content.trim() : undefined,
+        mediaUrl: remoteMediaUrl,
+        mediaType,
+        status: 'pending',
+      });
+
+      return res.status(201).json({ submission: created });
+    }
+
     let uploadBuffer = req.file.buffer;
     let uploadMimetype = req.file.mimetype;
     if (mediaType === 'video') {
@@ -494,7 +561,21 @@ async function updateSubmission(req, res) {
       : undefined;
   }
 
-  if (req.file) {
+  if (req.body?.mediaUrl && req.body?.mediaType && !req.file) {
+    const remoteMediaUrl = String(req.body.mediaUrl).trim();
+    const remoteMediaTypeRaw = String(req.body.mediaType).trim();
+    const remoteMediaType = ['image', 'video', 'audio'].includes(remoteMediaTypeRaw)
+      ? remoteMediaTypeRaw
+      : '';
+    if (!remoteMediaType) {
+      return res.status(400).json({ error: 'mediaType must be image, video, or audio.' });
+    }
+    if (!isValidHttpUrl(remoteMediaUrl)) {
+      return res.status(400).json({ error: 'mediaUrl must be a valid http/https URL.' });
+    }
+    updates.mediaUrl = remoteMediaUrl;
+    updates.mediaType = remoteMediaType;
+  } else if (req.file) {
     const mediaType = detectMediaType(req.file.mimetype);
     if (!mediaType) {
       return res.status(400).json({ error: 'Unsupported media type.' });

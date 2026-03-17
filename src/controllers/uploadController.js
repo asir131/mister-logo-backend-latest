@@ -1,5 +1,6 @@
 const cloudinary = require('cloudinary').v2;
 const { createSignedUploadUrl, isGcsProvider } = require('../services/mediaStorage');
+const { createResumableUploadUrl } = require('../services/gcsStorage');
 
 async function signUpload(req, res) {
   if (isGcsProvider()) {
@@ -48,6 +49,31 @@ async function signUpload(req, res) {
   });
 }
 
+async function createResumableUpload(req, res) {
+  if (!isGcsProvider()) {
+    return res.status(400).json({
+      error: 'Resumable uploads are only supported when GCS is enabled.',
+    });
+  }
+
+  try {
+    const session = await createResumableUploadUrl({
+      folder: req.body?.folder,
+      filename: req.body?.fileName,
+      contentType: req.body?.contentType,
+    });
+    return res.status(200).json({
+      provider: 'gcs',
+      ...session,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      error: err?.message || 'Could not create resumable upload session.',
+    });
+  }
+}
+
 module.exports = {
   signUpload,
+  createResumableUpload,
 };

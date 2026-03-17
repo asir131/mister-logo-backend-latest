@@ -6,6 +6,12 @@ const Profile = require('../models/Profile');
 const Like = require('../models/Like');
 const Comment = require('../models/Comment');
 const ModerationAction = require('../models/ModerationAction');
+const { createPreviewFromUrl } = require('../services/videoPreview');
+const { uploadMediaBuffer } = require('../services/mediaStorage');
+const {
+  createSignedReadUrlFromUrl,
+  createSignedReadUrlFromObjectName,
+} = require('../services/gcsStorage');
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
@@ -26,6 +32,56 @@ function getAdminIdentifier(req) {
   if (req?.admin?.email) return req.admin.email;
   if (req?.admin?.username) return req.admin.username;
   return 'system';
+}
+
+function extractObjectNameFromProxyUrl(url) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(String(url));
+    const path = parsed.pathname || '';
+    const marker = '/media/';
+    const idx = path.indexOf(marker);
+    if (idx === -1) return null;
+    const objectPath = path.slice(idx + marker.length);
+    return objectPath ? decodeURIComponent(objectPath) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function regeneratePostPreview(post) {
+  if (!post?.mediaUrl) {
+    throw new Error('Media URL missing.');
+  }
+  let sourceUrl = post.mediaUrl;
+  try {
+    const proxyObjectName = extractObjectNameFromProxyUrl(post.mediaUrl);
+    if (proxyObjectName) {
+      const signed = await createSignedReadUrlFromObjectName(proxyObjectName, 20);
+      sourceUrl = signed.readUrl;
+    } else {
+      const signed = await createSignedReadUrlFromUrl(post.mediaUrl, 20);
+      sourceUrl = signed.readUrl;
+    }
+  } catch (err) {
+    // Non-GCS URLs fall back to original mediaUrl
+  }
+
+  const previewBuffer = await createPreviewFromUrl({
+    sourceUrl,
+    width: 480,
+  });
+  const previewUpload = await uploadMediaBuffer(previewBuffer, {
+    folder: 'mister/posts-previews',
+    resource_type: 'video',
+    contentType: 'video/mp4',
+  });
+  const previewUrl = previewUpload.secure_url || previewUpload.url;
+  await Post.updateOne(
+    { _id: post._id },
+    { $set: { mediaPreviewUrl: previewUrl } },
+  );
+  return previewUrl;
 }
 
 async function logModerationAction(action) {
@@ -218,7 +274,41 @@ async function deletePost(req, res) {
   return res.status(200).json({ deleted: true });
 }
 
+async function regeneratePreview(req, res) {
+  const { postId } = req.params;
+  const force = String(req.query.force || '').toLowerCase() === 'true';
+  if (!mongoose.isValidObjectId(postId)) {
+    return res.status(400).json({ error: 'Invalid post id.' });
+  }
+
+  const post = await Post.findById(postId).lean();
+  if (!post) {
+    return res.status(404).json({ error: 'Post not found.' });
+  }
+  if (post.mediaType !== 'video') {
+    return res.status(400).json({ error: 'Preview can only be generated for video posts.' });
+  }
+  if (post.mediaPreviewUrl && !force) {
+    return res.status(200).json({
+      message: 'Preview already exists.',
+      mediaPreviewUrl: post.mediaPreviewUrl,
+    });
+  }
+
+  try {
+    const previewUrl = await regeneratePostPreview(post);
+    return res.status(200).json({
+      message: 'Preview regenerated.',
+      mediaPreviewUrl: previewUrl,
+    });
+  } catch (err) {
+    console.error('Admin preview regeneration failed:', err?.message || err);
+    return res.status(500).json({ error: err?.message || 'Could not regenerate preview.' });
+  }
+}
+
 module.exports = {
   listUserPosts,
   deletePost,
+  regeneratePreview,
 };
