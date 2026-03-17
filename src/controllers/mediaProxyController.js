@@ -47,9 +47,26 @@ async function streamMedia(req, res) {
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', cacheControl);
-    if (contentLength) res.setHeader('Content-Length', String(contentLength));
+    res.setHeader('Accept-Ranges', 'bytes');
 
-    const readStream = file.createReadStream();
+    let readStream;
+    const rangeHeader = req.headers.range;
+    if (rangeHeader && contentLength) {
+      const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+      const start = match && match[1] ? Number(match[1]) : 0;
+      const end = match && match[2] ? Number(match[2]) : contentLength - 1;
+      const safeStart = Number.isFinite(start) ? start : 0;
+      const safeEnd = Number.isFinite(end) && end >= safeStart ? end : contentLength - 1;
+      const chunkSize = safeEnd - safeStart + 1;
+
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${safeStart}-${safeEnd}/${contentLength}`);
+      res.setHeader('Content-Length', String(chunkSize));
+      readStream = file.createReadStream({ start: safeStart, end: safeEnd });
+    } else {
+      if (contentLength) res.setHeader('Content-Length', String(contentLength));
+      readStream = file.createReadStream();
+    }
     readStream.on('error', (err) => {
       console.error('Media stream error:', err?.message || err);
       if (!res.headersSent) {
