@@ -12,3 +12,5 @@ yarn-debug.log*
 yarn-error.log*
 frontend
 UNAP-dashboard
+# Secrets
+firebase-service-account.json
