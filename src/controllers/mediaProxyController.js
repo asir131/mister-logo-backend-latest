@@ -55,9 +55,10 @@ async function streamMedia(req, res) {
 
     const rangeHeader = req.headers.range;
     const isVideoLike = String(contentType || '').toLowerCase().startsWith('video/');
-    // Avoid proxying full video responses through Cloud Run.
-    // For video without range, always redirect to a signed GCS URL.
-    if (!rangeHeader && isVideoLike) {
+    // Never stream video payload through Cloud Run. ExoPlayer often requests
+    // wide byte ranges (for example "bytes=0-"), which can still exceed
+    // Cloud Run response-size limits even with Range headers.
+    if (isVideoLike) {
       try {
         const { readUrl } = await createSignedReadUrlFromObjectName(
           objectName,
