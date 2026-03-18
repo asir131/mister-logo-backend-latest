@@ -1,7 +1,15 @@
 const { URL } = require('url');
-const { getStorageClient } = require('../services/gcsStorage');
+const {
+  getStorageClient,
+  createSignedReadUrlFromObjectName,
+} = require('../services/gcsStorage');
 
 const BUCKET_NAME = process.env.GCS_BUCKET;
+const MAX_PROXY_BYTES = Number.parseInt(process.env.MEDIA_PROXY_MAX_BYTES || '25000000', 10);
+const SIGNED_URL_TTL_MINUTES = Number.parseInt(
+  process.env.GCS_SIGNED_URL_TTL_MINUTES || '15',
+  10
+);
 
 function extractObjectName(input) {
   if (!input) return null;
@@ -45,12 +53,26 @@ async function streamMedia(req, res) {
     const cacheControl = metadata?.cacheControl || 'public, max-age=31536000';
     const contentLength = metadata?.size ? Number(metadata.size) : undefined;
 
+    const rangeHeader = req.headers.range;
+    // Avoid proxying very large files without range support (Cloud Run response size limit).
+    if (!rangeHeader && contentLength && contentLength > MAX_PROXY_BYTES) {
+      try {
+        const { readUrl } = await createSignedReadUrlFromObjectName(
+          objectName,
+          Number.isFinite(SIGNED_URL_TTL_MINUTES) ? SIGNED_URL_TTL_MINUTES : 15
+        );
+        return res.redirect(302, readUrl);
+      } catch (err) {
+        console.error('Media signed URL error:', err?.message || err);
+        return res.status(500).json({ error: 'Could not generate media link.' });
+      }
+    }
+
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', cacheControl);
     res.setHeader('Accept-Ranges', 'bytes');
 
     let readStream;
-    const rangeHeader = req.headers.range;
     if (rangeHeader && contentLength) {
       const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
       const start = match && match[1] ? Number(match[1]) : 0;
