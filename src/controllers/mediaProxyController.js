@@ -54,7 +54,23 @@ async function streamMedia(req, res) {
     const contentLength = metadata?.size ? Number(metadata.size) : undefined;
 
     const rangeHeader = req.headers.range;
-    // Avoid proxying very large files without range support (Cloud Run response size limit).
+    const isVideoLike = String(contentType || '').toLowerCase().startsWith('video/');
+    // Avoid proxying full video responses through Cloud Run.
+    // For video without range, always redirect to a signed GCS URL.
+    if (!rangeHeader && isVideoLike) {
+      try {
+        const { readUrl } = await createSignedReadUrlFromObjectName(
+          objectName,
+          Number.isFinite(SIGNED_URL_TTL_MINUTES) ? SIGNED_URL_TTL_MINUTES : 15
+        );
+        return res.redirect(302, readUrl);
+      } catch (err) {
+        console.error('Media signed URL error:', err?.message || err);
+        return res.status(500).json({ error: 'Could not generate media link.' });
+      }
+    }
+
+    // For non-video files, avoid proxying very large files without range support.
     if (!rangeHeader && contentLength && contentLength > MAX_PROXY_BYTES) {
       try {
         const { readUrl } = await createSignedReadUrlFromObjectName(
