@@ -16,9 +16,12 @@ const outstandApi = require('../services/outstandApi');
 const { resolveAccountsForUser } = require('../services/outstandAccounts');
 const UBlast = require('../models/UBlast');
 const User = require('../models/User');
-const VIDEO_DIRECT_UPLOAD_LIMIT_BYTES = 100 * MB;
-const VIDEO_COMPRESS_TARGET_BYTES = 200 * MB;
-const VIDEO_MAX_INPUT_BYTES = 700 * MB;
+const VIDEO_DIRECT_UPLOAD_LIMIT_BYTES =
+  Number.parseInt(process.env.VIDEO_DIRECT_UPLOAD_LIMIT_MB || '100', 10) * MB;
+const VIDEO_COMPRESS_TARGET_BYTES =
+  Number.parseInt(process.env.VIDEO_COMPRESS_TARGET_MB || '200', 10) * MB;
+const VIDEO_MAX_INPUT_BYTES =
+  Number.parseInt(process.env.VIDEO_MAX_INPUT_MB || '1000', 10) * MB;
 
 function handleValidation(req, res) {
   const errors = validationResult(req);

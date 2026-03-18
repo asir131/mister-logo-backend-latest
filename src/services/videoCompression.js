@@ -5,7 +5,9 @@ const { spawn } = require('child_process');
 
 const MB = 1024 * 1024;
 const DEFAULT_TARGET_BYTES = 200 * MB;
-const DEFAULT_MAX_INPUT_BYTES = 700 * MB;
+const DEFAULT_MAX_INPUT_BYTES = 1000 * MB;
+const DEFAULT_MIN_VIDEO_KBPS = 600;
+const DEFAULT_AUDIO_KBPS = 96;
 
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
@@ -54,11 +56,12 @@ async function transcodeToTarget({
   durationSeconds,
   targetBytes,
   preset = 'veryfast',
+  minVideoKbps = DEFAULT_MIN_VIDEO_KBPS,
+  audioKbps = DEFAULT_AUDIO_KBPS,
 }) {
-  const audioKbps = 96;
   const muxOverheadKbps = 20;
   const totalKbps = Math.floor(((targetBytes * 8) / Math.max(durationSeconds, 1)) / 1000);
-  const videoKbps = Math.max(600, totalKbps - audioKbps - muxOverheadKbps);
+  const videoKbps = Math.max(minVideoKbps, totalKbps - audioKbps - muxOverheadKbps);
 
   const args = [
     '-y',
@@ -114,6 +117,9 @@ async function compressVideoBufferIfNeeded({
 
   const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
   const ffprobePath = process.env.FFPROBE_PATH || 'ffprobe';
+  const preset = process.env.VIDEO_PRESET || 'veryfast';
+  const minVideoKbps = Number.parseInt(process.env.VIDEO_MIN_KBPS || '', 10);
+  const audioKbps = Number.parseInt(process.env.VIDEO_AUDIO_KBPS || '', 10);
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'unap-video-compress-'));
   const inputPath = path.join(tempDir, 'input.bin');
   const outputPath = path.join(tempDir, 'output.mp4');
@@ -128,7 +134,9 @@ async function compressVideoBufferIfNeeded({
       outputPath,
       durationSeconds,
       targetBytes,
-      preset: 'veryfast',
+      preset,
+      minVideoKbps: Number.isFinite(minVideoKbps) ? minVideoKbps : DEFAULT_MIN_VIDEO_KBPS,
+      audioKbps: Number.isFinite(audioKbps) ? audioKbps : DEFAULT_AUDIO_KBPS,
     });
 
     let outputBuffer = await fs.readFile(outputPath);
@@ -141,6 +149,8 @@ async function compressVideoBufferIfNeeded({
         durationSeconds,
         targetBytes: Math.floor(targetBytes * 0.92),
         preset: 'slow',
+        minVideoKbps: Number.isFinite(minVideoKbps) ? minVideoKbps : DEFAULT_MIN_VIDEO_KBPS,
+        audioKbps: Number.isFinite(audioKbps) ? audioKbps : DEFAULT_AUDIO_KBPS,
       });
       outputBuffer = await fs.readFile(outputPath);
     }
