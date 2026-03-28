@@ -4,6 +4,7 @@ const authenticate = require('../middleware/auth');
 const passport = require('passport');
 const {
   register,
+  verifyPhoneOtp,
   verifyOtp,
   login,
   refresh,
@@ -377,6 +378,7 @@ router.post(
     body('name').trim().notEmpty().withMessage('Name is required'),
     body('email').trim().isEmail().withMessage('Valid email is required'),
     body('phoneNumber').trim().notEmpty().withMessage('Phone number is required'),
+    body('countryIso').optional({ nullable: true }).isString(),
     body('password')
       .isLength({ min: 6 })
       .withMessage('Password must be at least 6 characters'),
@@ -385,6 +387,19 @@ router.post(
       .withMessage('Passwords must match'),
   ],
   register,
+);
+
+router.post(
+  '/verify-phone-otp',
+  [
+    body('email').trim().isEmail().withMessage('Valid email is required'),
+    body('phoneNumber').trim().notEmpty().withMessage('Phone number is required'),
+    body('otp')
+      .trim()
+      .isLength({ min: 4, max: 4 })
+      .withMessage('Phone OTP must be 4 digits'),
+  ],
+  verifyPhoneOtp,
 );
 
 router.post(

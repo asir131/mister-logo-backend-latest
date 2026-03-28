@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
 const { sendOtpEmail } = require('../services/emailService');
+const { sendSms } = require('../services/smsService');
 const { getFirebaseAuth } = require('../services/firebaseAdmin');
 const generateOtp = require('../utils/generateOtp');
 const User = require('../models/User');
@@ -16,6 +17,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 30);
 const RESET_TOKEN_EXPIRES_IN = process.env.RESET_TOKEN_EXPIRES_IN || '15m';
+const PHONE_OTP_EXPIRES_MS = 5 * 60 * 1000;
+const EMAIL_OTP_EXPIRES_MS = 10 * 60 * 1000;
+const PHONE_VERIFICATION_COUNTRIES = new Set(['US', 'CA', 'GB', 'UK']);
 
 function normalizeId(user) {
   if (!user) return user;
@@ -37,6 +41,31 @@ function handleValidation(req, res) {
     return res.status(400).json({ errors: errors.array() });
   }
   return null;
+}
+
+function normalizePhoneNumber(rawValue) {
+  const raw = String(rawValue || '').trim();
+  if (!raw) return '';
+  const cleaned = raw.replace(/[^\d+]/g, '');
+  if (!cleaned) return '';
+  if (cleaned.startsWith('+')) {
+    return `+${cleaned.slice(1).replace(/\+/g, '')}`;
+  }
+  return `+${cleaned.replace(/\+/g, '')}`;
+}
+
+function requiresPhoneVerificationForRegistration(countryIso, phoneNumber) {
+  const normalizedIso = String(countryIso || '').trim().toUpperCase();
+  if (PHONE_VERIFICATION_COUNTRIES.has(normalizedIso)) return true;
+  return String(phoneNumber || '').trim().startsWith('+1') || String(phoneNumber || '').trim().startsWith('+44');
+}
+
+function generateNumericOtp(length) {
+  let otp = '';
+  for (let i = 0; i < length; i += 1) {
+    otp += Math.floor(Math.random() * 10).toString();
+  }
+  return otp;
 }
 
 function issueToken(user) {
@@ -89,10 +118,11 @@ async function register(req, res) {
   const validationError = handleValidation(req, res);
   if (validationError !== null) return;
 
-  const { name, email, phoneNumber, password } = req.body;
+  const { name, email, phoneNumber, password, countryIso } = req.body;
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
   try {
     const existingUser = await User.findOne({
-      $or: [{ email }, { phoneNumber }],
+      $or: [{ email }, { phoneNumber: normalizedPhone }],
     }).lean();
 
     if (existingUser) {
@@ -100,28 +130,58 @@ async function register(req, res) {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const otp = generateOtp();
+    const emailOtp = generateOtp();
+    const needsPhoneOtp = requiresPhoneVerificationForRegistration(
+      countryIso,
+      normalizedPhone,
+    );
 
     await OtpToken.deleteMany({
-      $or: [{ email }, { 'payload.phoneNumber': phoneNumber }],
-      type: 'register',
+      $or: [{ email }, { 'payload.phoneNumber': normalizedPhone }],
+      type: { $in: ['register', 'register_phone'] },
     });
+    if (needsPhoneOtp) {
+      const phoneOtp = generateNumericOtp(4);
+      await OtpToken.create({
+        email,
+        otp: phoneOtp,
+        type: 'register_phone',
+        payload: {
+          name,
+          email,
+          phoneNumber: normalizedPhone,
+          passwordHash,
+        },
+        expiresAt: new Date(Date.now() + PHONE_OTP_EXPIRES_MS),
+      });
+      await sendSms({
+        to: normalizedPhone,
+        body: `Your UNAP verification code is ${phoneOtp}. This code expires in 5 minutes.`,
+      });
+      return res.status(200).json({
+        requiresPhoneVerification: true,
+        message:
+          'Phone verification code sent by SMS. Verify phone first to continue.',
+      });
+    }
+
     await OtpToken.create({
       email,
-      otp,
+      otp: emailOtp,
       type: 'register',
       payload: {
         name,
         email,
-        phoneNumber,
+        phoneNumber: normalizedPhone,
         passwordHash,
       },
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      expiresAt: new Date(Date.now() + EMAIL_OTP_EXPIRES_MS),
     });
 
-    await sendOtpEmail(email, otp);
+    await sendOtpEmail(email, emailOtp);
 
     return res.status(200).json({
+      requiresPhoneVerification: false,
       message: 'OTP sent to email. Please verify to complete registration.',
     });
   } catch (err) {
@@ -129,6 +189,67 @@ async function register(req, res) {
     return res
       .status(500)
       .json({ error: 'Could not start registration. Please try again.' });
+  }
+}
+
+async function verifyPhoneOtp(req, res) {
+  const validationError = handleValidation(req, res);
+  if (validationError !== null) return;
+
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const phoneNumber = normalizePhoneNumber(req.body?.phoneNumber);
+  const otp = String(req.body?.otp || '').trim();
+
+  try {
+    const tokenDoc = await OtpToken.findOne({
+      email,
+      otp,
+      type: 'register_phone',
+      'payload.phoneNumber': phoneNumber,
+    });
+    if (!tokenDoc) {
+      return res.status(400).json({ error: 'Phone OTP not found. Please register again.' });
+    }
+
+    if (Date.now() > tokenDoc.expiresAt.getTime()) {
+      await tokenDoc.deleteOne();
+      return res.status(400).json({ error: 'Phone OTP expired. Please register again.' });
+    }
+
+    const existingUser = await User.findOne({
+      $or: [{ email }, { phoneNumber }],
+    }).lean();
+    if (existingUser) {
+      await tokenDoc.deleteOne();
+      return res.status(400).json({ error: 'Email or phone already registered.' });
+    }
+
+    const emailOtp = generateOtp();
+    await OtpToken.deleteMany({
+      $or: [{ email }, { 'payload.phoneNumber': phoneNumber }],
+      type: { $in: ['register', 'register_phone'] },
+    });
+
+    await OtpToken.create({
+      email,
+      otp: emailOtp,
+      type: 'register',
+      payload: tokenDoc.payload || {
+        email,
+        phoneNumber,
+      },
+      expiresAt: new Date(Date.now() + EMAIL_OTP_EXPIRES_MS),
+    });
+
+    await sendOtpEmail(email, emailOtp);
+
+    return res.status(200).json({
+      message: 'Phone verified. Email OTP sent.',
+      requiresEmailVerification: true,
+    });
+  } catch (err) {
+    console.error('Phone OTP verification error:', err);
+    return res.status(500).json({ error: 'Could not verify phone OTP.' });
   }
 }
 
@@ -647,6 +768,7 @@ async function firebaseLogin(req, res) {
 
 module.exports = {
   register,
+  verifyPhoneOtp,
   verifyOtp,
   login,
   refresh,
