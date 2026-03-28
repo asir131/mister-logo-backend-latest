@@ -4,10 +4,10 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const MB = 1024 * 1024;
-const DEFAULT_TARGET_BYTES = 200 * MB;
+const DEFAULT_TARGET_BYTES = 260 * MB;
 const DEFAULT_MAX_INPUT_BYTES = 1000 * MB;
-const DEFAULT_MIN_VIDEO_KBPS = 600;
-const DEFAULT_AUDIO_KBPS = 96;
+const DEFAULT_MIN_VIDEO_KBPS = 1800;
+const DEFAULT_AUDIO_KBPS = 128;
 
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {

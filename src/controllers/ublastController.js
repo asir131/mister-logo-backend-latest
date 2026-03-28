@@ -10,7 +10,7 @@ const UblastOffer = require('../models/UblastOffer');
 const { uploadMediaBuffer } = require('../services/mediaStorage');
 const { compressVideoBufferIfNeeded, MB } = require('../services/videoCompression');
 const VIDEO_COMPRESS_TARGET_BYTES =
-  Number.parseInt(process.env.VIDEO_COMPRESS_TARGET_MB || '200', 10) * MB;
+  Number.parseInt(process.env.VIDEO_COMPRESS_TARGET_MB || '260', 10) * MB;
 const VIDEO_MAX_INPUT_BYTES =
   Number.parseInt(process.env.VIDEO_MAX_INPUT_MB || '1000', 10) * MB;
 

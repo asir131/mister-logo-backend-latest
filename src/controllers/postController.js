@@ -19,7 +19,7 @@ const User = require('../models/User');
 const VIDEO_DIRECT_UPLOAD_LIMIT_BYTES =
   Number.parseInt(process.env.VIDEO_DIRECT_UPLOAD_LIMIT_MB || '100', 10) * MB;
 const VIDEO_COMPRESS_TARGET_BYTES =
-  Number.parseInt(process.env.VIDEO_COMPRESS_TARGET_MB || '200', 10) * MB;
+  Number.parseInt(process.env.VIDEO_COMPRESS_TARGET_MB || '260', 10) * MB;
 const VIDEO_MAX_INPUT_BYTES =
   Number.parseInt(process.env.VIDEO_MAX_INPUT_MB || '1000', 10) * MB;
 
@@ -59,12 +59,25 @@ function toPlayableCloudinaryVideoUrl(url) {
   if (!url.includes('/res.cloudinary.com/') || !url.includes('/video/upload/')) {
     return url;
   }
+  const upgradedQuality = url.replace(/q_auto:[^,/]+/g, 'q_auto:best');
+  if (upgradedQuality !== url) {
+    return upgradedQuality;
+  }
   if (url.includes('/video/upload/f_mp4,') || url.includes('/video/upload/f_mp4/')) {
-    return url;
+    if (url.includes('/video/upload/f_mp4,vc_h264,ac_aac/')) {
+      return url.replace(
+        '/video/upload/f_mp4,vc_h264,ac_aac/',
+        '/video/upload/f_mp4,vc_h264,ac_aac,q_auto:best/',
+      );
+    }
+    if (url.includes('/video/upload/f_mp4/')) {
+      return url.replace('/video/upload/f_mp4/', '/video/upload/f_mp4,q_auto:best/');
+    }
+    return url.replace('/video/upload/f_mp4,', '/video/upload/f_mp4,q_auto:best,');
   }
   return url.replace(
     '/video/upload/',
-    '/video/upload/f_mp4,vc_h264,ac_aac,q_auto:good/'
+    '/video/upload/f_mp4,vc_h264,ac_aac,q_auto:best/'
   );
 }
 
@@ -1408,7 +1421,7 @@ async function listUclips(req, res) {
           },
         },
       },
-      { $sort: { score: -1, createdAt: -1 } },
+      { $sort: { createdAt: -1, score: -1 } },
       { $skip: skip },
       { $limit: limit },
       {
