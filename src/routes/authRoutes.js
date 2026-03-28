@@ -104,6 +104,10 @@ function buildInstagramAuthorizeUrl(state) {
   url.searchParams.set('redirect_uri', INSTAGRAM_CALLBACK_URL);
   url.searchParams.set('scope', INSTAGRAM_OAUTH_SCOPES);
   url.searchParams.set('response_type', 'code');
+  // Facebook dialog-based Instagram business login may require platform marker.
+  if (/facebook\.com$/i.test(url.hostname) || /facebook\.com$/i.test(url.host)) {
+    url.searchParams.set('platform', 'instagram');
+  }
   if (state) url.searchParams.set('state', state);
   return url.toString();
 }
