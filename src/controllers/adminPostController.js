@@ -7,7 +7,7 @@ const Like = require('../models/Like');
 const Comment = require('../models/Comment');
 const ModerationAction = require('../models/ModerationAction');
 const { createPreviewFromUrl } = require('../services/videoPreview');
-const { uploadMediaBuffer } = require('../services/mediaStorage');
+const { uploadImageBuffer } = require('../services/mediaStorage');
 const {
   createSignedReadUrlFromUrl,
   createSignedReadUrlFromObjectName,
@@ -69,12 +69,13 @@ async function regeneratePostPreview(post) {
 
   const previewBuffer = await createPreviewFromUrl({
     sourceUrl,
-    width: 480,
+    width: 720,
+    seekSec: 1.0,
   });
-  const previewUpload = await uploadMediaBuffer(previewBuffer, {
+  const previewUpload = await uploadImageBuffer(previewBuffer, {
     folder: 'mister/posts-previews',
-    resource_type: 'video',
-    contentType: 'video/mp4',
+    resource_type: 'image',
+    contentType: 'image/jpeg',
   });
   const previewUrl = previewUpload.secure_url || previewUpload.url;
   await Post.updateOne(

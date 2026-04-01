@@ -24,50 +24,31 @@ function getBinaryPath(envKey, fallback) {
 
 async function createPreviewFromUrl({
   sourceUrl,
-  durationSeconds,
-  width = 480,
+  width = 720,
+  seekSec = 1.0,
 }) {
   if (!sourceUrl) {
     throw new Error('sourceUrl is required for preview generation.');
   }
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'preview-'));
-  const outputPath = path.join(tempDir, 'preview.mp4');
+  const outputPath = path.join(tempDir, 'preview.jpg');
   const ffmpeg = getBinaryPath('FFMPEG_PATH', 'ffmpeg');
 
   const args = [
     '-y',
     '-ss',
-    '0',
+    String(seekSec),
     '-i',
     sourceUrl,
     '-vf',
-    `scale=-2:240`,
-    '-r',
-    '24',
-    '-c:v',
-    'libx264',
-    '-preset',
-    'ultrafast',
-    '-crf',
-    '32',
-    '-b:v',
-    '350k',
-    '-maxrate',
-    '450k',
-    '-bufsize',
-    '900k',
-    '-pix_fmt',
-    'yuv420p',
-    '-an',
-    '-movflags',
-    '+faststart',
+    `scale=min(iw\\,${width}):-2:flags=lanczos,unsharp=5:5:0.6:3:3:0.0`,
+    '-frames:v',
+    '1',
+    '-q:v',
+    '2',
     outputPath,
   ];
-
-  if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
-    args.splice(3, 0, '-t', String(durationSeconds));
-  }
 
   try {
     await runCommand(ffmpeg, args);

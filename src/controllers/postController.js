@@ -6,7 +6,7 @@ const Profile = require('../models/Profile');
 const Like = require('../models/Like');
 const Comment = require('../models/Comment');
 const SavedPost = require('../models/SavedPost');
-const { uploadMediaBuffer } = require('../services/mediaStorage');
+const { uploadMediaBuffer, uploadImageBuffer } = require('../services/mediaStorage');
 const { compressVideoBufferIfNeeded, MB } = require('../services/videoCompression');
 const { createPreviewFromUrl } = require('../services/videoPreview');
 const { enqueuePreviewTask } = require('../services/previewQueue');
@@ -102,7 +102,7 @@ function extractObjectNameFromProxyUrl(url) {
 }
 
 async function generateVideoPreview(postId, mediaUrl) {
-  if (!postId || !mediaUrl) return;
+  if (!postId || !mediaUrl) return '';
   try {
     let sourceUrl = mediaUrl;
     try {
@@ -120,19 +120,22 @@ async function generateVideoPreview(postId, mediaUrl) {
 
     const previewBuffer = await createPreviewFromUrl({
       sourceUrl,
-      width: 480,
+      width: 720,
+      seekSec: 1.0,
     });
-    const previewUpload = await uploadMediaBuffer(previewBuffer, {
+    const previewUpload = await uploadImageBuffer(previewBuffer, {
       folder: 'mister/posts-previews',
-      resource_type: 'video',
-      contentType: 'video/mp4',
+      resource_type: 'image',
+      contentType: 'image/jpeg',
     });
     await Post.updateOne(
       { _id: postId },
       { $set: { mediaPreviewUrl: previewUpload.secure_url || previewUpload.url } },
     );
+    return previewUpload.secure_url || previewUpload.url || '';
   } catch (err) {
     console.error('Post preview generation failed:', err?.message || err);
+    return '';
   }
 }
 function parseScheduledFor(value) {
@@ -218,6 +221,39 @@ function normalizeShareTarget(value) {
   if (!target) return '';
   if (target === 'x') return 'twitter';
   return target;
+}
+
+function pickDescriptionCandidate(source) {
+  if (!source) return '';
+  const direct = String(source.description || '').trim();
+  if (direct) return direct;
+  const content = String(source.content || '').trim();
+  if (content) return content;
+  const text = String(source.text || '').trim();
+  if (text) return text;
+  return '';
+}
+
+async function resolveSharedDescription(source) {
+  // First priority: current source description/content/text
+  const first = pickDescriptionCandidate(source);
+  if (first) return first;
+
+  // Fallback: walk sharedFrom chain a few steps to preserve original caption
+  let currentId = source?.sharedFromPostId;
+  let depth = 0;
+  while (currentId && depth < 4) {
+    const parent = await Post.findById(currentId)
+      .select('description content text sharedFromPostId')
+      .lean();
+    if (!parent) break;
+    const candidate = pickDescriptionCandidate(parent);
+    if (candidate) return candidate;
+    currentId = parent.sharedFromPostId;
+    depth += 1;
+  }
+
+  return '';
 }
 
 function isBlockedUntil(dateValue) {
@@ -365,10 +401,15 @@ async function createPost(req, res) {
     });
 
     if (mediaType === 'video' && !created.mediaPreviewUrl) {
-      enqueuePreviewTask(
-        () => generateVideoPreview(created._id, created.mediaUrl),
-        { priority: true }
-      );
+      const immediatePreviewUrl = await generateVideoPreview(created._id, created.mediaUrl);
+      if (immediatePreviewUrl) {
+        created.mediaPreviewUrl = immediatePreviewUrl;
+      } else {
+        enqueuePreviewTask(
+          () => generateVideoPreview(created._id, created.mediaUrl),
+          { priority: true }
+        );
+      }
     }
 
     if (isScheduled && shareTargets.length > 0) {
@@ -725,6 +766,8 @@ async function sharePostInternal({ userId, postId, target }) {
     return { status: 400, error: 'Post media is missing.' };
   }
 
+  const resolvedDescription = await resolveSharedDescription(source);
+
   const profile = await Profile.findOne({ userId }).lean();
   if (!profile) {
     return { status: 400, error: 'Profile required before sharing.' };
@@ -816,7 +859,7 @@ async function sharePostInternal({ userId, postId, target }) {
 
   const created = await Post.create({
     userId,
-    description: source.description,
+    description: resolvedDescription,
     mediaType: source.mediaType,
     mediaUrl: source.mediaUrl,
     shareToFacebook: shareTargets.includes('facebook'),
@@ -1015,17 +1058,22 @@ async function updateScheduledPost(req, res) {
       contentType: uploadMimetype,
     });
 
-    if (mediaType === 'video' && !created.mediaPreviewUrl) {
-      enqueuePreviewTask(
-        () => generateVideoPreview(created._id, created.mediaUrl),
-        { priority: true }
-      );
-    }
     updates.mediaType = mediaType;
     updates.mediaUrl = normalizeMediaUrlForPlayback(uploadResult.secure_url || uploadResult.url, mediaType);
     updates.mediaPublicId = uploadResult.public_id;
     updates.mimeType = uploadMimetype;
     updates.size = uploadSize;
+    if (mediaType === 'video') {
+      const immediatePreviewUrl = await generateVideoPreview(postId, updates.mediaUrl);
+      if (immediatePreviewUrl) {
+        updates.mediaPreviewUrl = immediatePreviewUrl;
+      } else {
+        enqueuePreviewTask(
+          () => generateVideoPreview(postId, updates.mediaUrl),
+          { priority: true }
+        );
+      }
+    }
   }
 
   const updated = await Post.findOneAndUpdate(
