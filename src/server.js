@@ -55,6 +55,7 @@ const allowedOrigins = process.env.CORS_ORIGINS
       "http://localhost:5173",
       "https://ungustatory-erringly-ralph.ngrok-free.dev",
       "https://mister-logo-dashboard-vuek.vercel.app",
+      "https://unap-dashboard-833630612791.us-central1.run.app",
     ];
 const corsOptions = {
   origin: allowedOrigins,
@@ -201,7 +202,9 @@ io.on("connection", (socket) => {
 app.set("io", io);
 server.on("error", (err) => {
   if (err?.code === "EADDRINUSE") {
-    console.error(`Port ${PORT} is already in use. Stop the existing process or use another PORT.`);
+    console.error(
+      `Port ${PORT} is already in use. Stop the existing process or use another PORT.`,
+    );
     process.exit(1);
   }
   console.error("Server startup error:", err);
@@ -224,4 +227,3 @@ connectDB()
     console.error("Failed to connect to database:", err);
     process.exit(1);
   });
-
