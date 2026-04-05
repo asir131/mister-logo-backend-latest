@@ -117,6 +117,61 @@ app.get("/health", (req, res) => {
 app.get("/share/:postId", sharePage);
 app.get("/share/x/:postId", shareXLink);
 
+// Public account deletion information page (required by Google Play policy)
+app.get("/unap-account-deletion", (req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.status(200).send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UNAP Account Deletion</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 24px; line-height: 1.6; color: #111; background: #f7f7f8; }
+      .card { max-width: 780px; margin: 0 auto; background: #fff; border: 1px solid #e6e6e9; border-radius: 12px; padding: 24px; }
+      h1, h2 { margin-top: 0; }
+      code { background: #f1f1f4; padding: 2px 6px; border-radius: 4px; }
+      ul { padding-left: 20px; }
+      .muted { color: #555; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>UNAP Account and Data Deletion</h1>
+      <p>
+        If you want to delete your UNAP account and associated data, you can do it directly from the app or by contacting support.
+      </p>
+
+      <h2>How to delete your account in the app</h2>
+      <ol>
+        <li>Log in to your UNAP account.</li>
+        <li>Go to <strong>Profile</strong> &gt; <strong>Settings</strong>.</li>
+        <li>Tap <strong>Delete Account</strong> and confirm.</li>
+      </ol>
+
+      <h2>Data deleted after account deletion</h2>
+      <ul>
+        <li>Profile information</li>
+        <li>User-generated posts, including photos/videos and captions</li>
+        <li>Linked social account records associated with your UNAP account</li>
+      </ul>
+
+      <h2>Data retention</h2>
+      <p class="muted">
+        Some operational logs and legally required records may be retained for up to 90 days for security, fraud prevention, and compliance purposes.
+      </p>
+
+      <h2>Alternative deletion request</h2>
+      <p>
+        If you cannot access the app, contact support and request account deletion:
+        <br />
+        <code>support@unitedartistsofpower.com</code>
+      </p>
+    </div>
+  </body>
+</html>`);
+});
+
 // Global error handler fallback
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
