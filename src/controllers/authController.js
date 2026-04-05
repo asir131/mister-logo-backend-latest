@@ -294,12 +294,20 @@ async function verifyOtp(req, res) {
 
     const token = issueToken(user);
     const refreshToken = await issueRefreshToken(user._id || user.id);
+    const existingProfile = await Profile.findOne({
+      userId: user._id || user.id,
+    })
+      .select('_id')
+      .lean();
+    const needsProfileCompletion = !existingProfile;
 
     return res.status(201).json({
       message: 'Registration completed successfully.',
       user: sanitizeUser(user),
       token,
       refreshToken,
+      isFirstLogin: true,
+      needsProfileCompletion,
     });
   } catch (err) {
     console.error('OTP verification error:', err);
@@ -339,12 +347,20 @@ async function login(req, res) {
 
     const token = issueToken(user);
     const refreshToken = await issueRefreshToken(user._id || user.id);
+    const existingProfile = await Profile.findOne({
+      userId: user._id || user.id,
+    })
+      .select('_id')
+      .lean();
+    const needsProfileCompletion = !existingProfile;
 
     return res.status(200).json({
       message: 'Login successful.',
       user: sanitizeUser(user),
       token,
       refreshToken,
+      isFirstLogin: false,
+      needsProfileCompletion,
     });
   } catch (err) {
     console.error('Login error:', err);

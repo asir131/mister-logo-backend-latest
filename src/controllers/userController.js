@@ -209,8 +209,16 @@ async function getUserPosts(req, res) {
     return res.status(400).json({ error: 'Invalid user id.' });
   }
 
-  if (!['image', 'video', 'audio'].includes(mediaType)) {
-    return res.status(400).json({ error: 'mediaType must be image, video, or audio.' });
+  const normalizedMediaType =
+    typeof mediaType === 'string' ? mediaType.trim().toLowerCase() : '';
+
+  if (
+    normalizedMediaType &&
+    !['image', 'video', 'audio'].includes(normalizedMediaType)
+  ) {
+    return res
+      .status(400)
+      .json({ error: 'mediaType must be image, video, or audio.' });
   }
 
   const page = parsePaging(req.query.page, 1);
@@ -219,12 +227,14 @@ async function getUserPosts(req, res) {
 
   const match = {
     userId: new mongoose.Types.ObjectId(userId),
-    mediaType,
     $and: [
       { $or: [{ status: 'published' }, { status: { $exists: false } }] },
       { $or: [{ isApproved: true }, { isApproved: { $exists: false } }] },
     ],
   };
+  if (normalizedMediaType) {
+    match.mediaType = normalizedMediaType;
+  }
 
   const [totalCount, posts] = await Promise.all([
     Post.countDocuments(match),
@@ -285,7 +295,7 @@ async function getUserPosts(req, res) {
     page,
     totalPages,
     totalCount,
-    mediaType,
+    mediaType: normalizedMediaType || null,
   });
 }
 
