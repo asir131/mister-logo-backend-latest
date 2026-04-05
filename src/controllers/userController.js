@@ -280,6 +280,7 @@ async function getUserPosts(req, res) {
           description: 1,
           mediaType: 1,
           mediaUrl: 1,
+          mediaPreviewUrl: 1,
           createdAt: 1,
           likeCount: 1,
           commentCount: 1,
