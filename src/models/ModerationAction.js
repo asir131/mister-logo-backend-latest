@@ -9,7 +9,7 @@ const ModerationActionSchema = new mongoose.Schema(
     },
     targetType: {
       type: String,
-      enum: ['user', 'post'],
+      enum: ['user', 'post', 'ucut', 'ublast'],
       required: true,
     },
     targetId: {

@@ -1168,6 +1168,17 @@ async function listMyPosts(req, res) {
       },
       {
         $lookup: {
+          from: 'posts',
+          let: { postId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$sharedFromPostId', '$$postId'] } } },
+            { $count: 'count' },
+          ],
+          as: 'shareCounts',
+        },
+      },
+      {
+        $lookup: {
           from: 'comments',
           let: { postId: '$_id' },
           pipeline: [
@@ -1260,6 +1271,9 @@ async function listMyPosts(req, res) {
           commentCount: {
             $ifNull: [{ $arrayElemAt: ['$commentCounts.count', 0] }, 0],
           },
+          shareCount: {
+            $ifNull: [{ $arrayElemAt: ['$shareCounts.count', 0] }, 0],
+          },
           viewerHasLiked: { $gt: [{ $size: '$viewerLike' }, 0] },
           viewerIsFollowing: false,
           viewerHasSaved: { $gt: [{ $size: '$viewerSaved' }, 0] },
@@ -1281,6 +1295,7 @@ async function listMyPosts(req, res) {
           viewCount: 1,
           likeCount: 1,
           commentCount: 1,
+          shareCount: 1,
           viewerHasLiked: 1,
           viewerIsFollowing: 1,
           viewerHasSaved: 1,

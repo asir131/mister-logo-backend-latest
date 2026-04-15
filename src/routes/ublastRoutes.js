@@ -12,6 +12,7 @@ const {
   updateSubmission,
   shareUblast,
 } = require('../controllers/ublastController');
+const { reportUblast } = require('../controllers/reportController');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -59,6 +60,12 @@ router.post(
   authenticate,
   [body('shareType').optional({ nullable: true }).isIn(['feed', 'story'])],
   shareUblast,
+);
+router.post(
+  '/:ublastId/report',
+  authenticate,
+  [body('reason').trim().notEmpty().withMessage('Report reason is required')],
+  reportUblast,
 );
 
 router.post(

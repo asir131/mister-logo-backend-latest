@@ -17,6 +17,7 @@ const {
   listUclips,
   requestPreview,
 } = require('../controllers/postController');
+const { reportPost } = require('../controllers/reportController');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -86,6 +87,12 @@ router.get('/scheduled', authenticate, listScheduledPosts);
 router.get('/mine', authenticate, listMyPosts);
 router.get('/uclips', authenticate, listUclips);
 router.post('/:postId/preview', authenticate, requestPreview);
+router.post(
+  '/:postId/report',
+  authenticate,
+  [body('reason').trim().notEmpty().withMessage('Report reason is required')],
+  reportPost,
+);
 router.get('/:postId', authenticate, getPostById);
 router.patch(
   '/:postId/scheduled',

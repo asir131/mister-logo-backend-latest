@@ -14,6 +14,7 @@ const {
   addComment,
   deleteUcut,
 } = require('../controllers/ucutController');
+const { reportUcut } = require('../controllers/reportController');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -55,6 +56,12 @@ router.post('/:ucutId/like', authenticate, likeUcut);
 router.delete('/:ucutId/like', authenticate, unlikeUcut);
 router.get('/:ucutId/comments', authenticate, listComments);
 router.post('/:ucutId/comments', authenticate, addComment);
+router.post(
+  '/:ucutId/report',
+  authenticate,
+  [body('reason').trim().notEmpty().withMessage('Report reason is required')],
+  reportUcut,
+);
 router.delete('/:ucutId', authenticate, deleteUcut);
 
 module.exports = router;

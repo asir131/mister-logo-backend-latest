@@ -74,6 +74,17 @@ async function getFeed(req, res) {
       },
       {
         $lookup: {
+          from: 'posts',
+          let: { postId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$sharedFromPostId', '$$postId'] } } },
+            { $count: 'count' },
+          ],
+          as: 'shareCounts',
+        },
+      },
+      {
+        $lookup: {
           from: 'likes',
           let: { postId: '$_id', viewerId },
           pipeline: [
@@ -140,6 +151,9 @@ async function getFeed(req, res) {
           commentCount: {
             $ifNull: [{ $arrayElemAt: ['$commentCounts.count', 0] }, 0],
           },
+          shareCount: {
+            $ifNull: [{ $arrayElemAt: ['$shareCounts.count', 0] }, 0],
+          },
           viewerHasLiked: { $gt: [{ $size: '$viewerLike' }, 0] },
           viewerIsFollowing: {
             $cond: [
@@ -162,6 +176,7 @@ async function getFeed(req, res) {
           viewCount: 1,
           likeCount: 1,
           commentCount: 1,
+          shareCount: 1,
           viewerHasLiked: 1,
           viewerIsFollowing: 1,
           viewerHasSaved: 1,
