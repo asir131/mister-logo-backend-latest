@@ -37,10 +37,15 @@ async function listReports(req, res) {
   const page = parsePaging(req.query.page, 1);
   const limit = parsePaging(req.query.limit, 10, 100);
   const skip = (page - 1) * limit;
+  const statusQuery = String(req.query.status || 'open').trim().toLowerCase();
+  const match = {};
+  if (statusQuery && statusQuery !== 'all') {
+    match.status = statusQuery;
+  }
 
   const [totalCount, reports] = await Promise.all([
-    ContentReport.countDocuments({ status: 'open' }),
-    ContentReport.find({ status: 'open' })
+    ContentReport.countDocuments(match),
+    ContentReport.find(match)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -167,6 +172,36 @@ async function listReports(req, res) {
   });
 }
 
+async function dismissReport(req, res) {
+  const { reportId } = req.params;
+  if (!mongoose.isValidObjectId(reportId)) {
+    return res.status(400).json({ error: 'Invalid report id.' });
+  }
+
+  const report = await ContentReport.findById(reportId).lean();
+  if (!report) {
+    return res.status(404).json({ error: 'Report not found.' });
+  }
+
+  await ContentReport.findByIdAndUpdate(reportId, {
+    $set: {
+      status: 'dismissed',
+      resolvedAt: new Date(),
+      resolvedBy: getAdminIdentifier(req),
+    },
+  });
+
+  await logModerationAction({
+    type: 'remove_post',
+    targetType: report.targetType,
+    targetId: report.targetId,
+    performedBy: getAdminIdentifier(req),
+    reason: 'Report dismissed by admin',
+  });
+
+  return res.status(200).json({ dismissed: true });
+}
+
 async function deleteReportedContent(req, res) {
   const { reportId } = req.params;
   if (!mongoose.isValidObjectId(reportId)) {
@@ -261,5 +296,6 @@ async function deleteReportedContent(req, res) {
 
 module.exports = {
   listReports,
+  dismissReport,
   deleteReportedContent,
 };

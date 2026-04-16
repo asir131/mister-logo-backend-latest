@@ -43,7 +43,7 @@ const { listUserPosts, deletePost, regeneratePreview } = require('../controllers
 const { getTrending } = require('../controllers/trendingController');
 const { getAdminStats } = require('../controllers/adminStatsController');
 const { listModerationActions } = require('../controllers/adminModerationController');
-const { listReports, deleteReportedContent } = require('../controllers/adminReportController');
+const { listReports, dismissReport, deleteReportedContent } = require('../controllers/adminReportController');
 const { sendBulkEmail, sendBulkSms } = require('../controllers/adminCommunicationsController');
 const {
   createRewardUblast,
@@ -119,6 +119,7 @@ router.get('/posts', listUserPosts);
 router.delete('/posts/:postId', deletePost);
 router.post('/posts/:postId/preview', regeneratePreview);
 router.get('/reports', listReports);
+router.patch('/reports/:reportId/dismiss', dismissReport);
 router.delete('/reports/:reportId/content', deleteReportedContent);
 router.get('/stats', getAdminStats);
 router.get('/moderation/actions', listModerationActions);
@@ -187,3 +188,4 @@ router.patch(
 );
 
 module.exports = router;
+
