@@ -39,6 +39,7 @@ async function sharePage(req, res) {
     const description = `Shared by ${authorName}`;
     const shareUrl = buildShareUrl(req, post._id);
     const mediaUrl = post.mediaUrl || '';
+    const previewImageUrl = post.mediaPreviewUrl || post.mediaUrl || '';
     const mediaType = post.mediaType || '';
     const isVideo = mediaType === 'video';
 
@@ -46,6 +47,7 @@ async function sharePage(req, res) {
     const escapedDescription = escapeHtml(description);
     const escapedShareUrl = escapeHtml(shareUrl);
     const escapedMediaUrl = escapeHtml(mediaUrl);
+    const escapedPreviewImageUrl = escapeHtml(previewImageUrl);
 
     return res.status(200).send(`<!doctype html>
 <html lang="en">
@@ -56,22 +58,25 @@ async function sharePage(req, res) {
     <meta property="og:title" content="${escapedTitle}" />
     <meta property="og:description" content="${escapedDescription}" />
     <meta property="og:url" content="${escapedShareUrl}" />
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content="article" />
     ${
-      escapedMediaUrl
+      escapedPreviewImageUrl
         ? isVideo
-          ? `<meta property="og:video" content="${escapedMediaUrl}" />
+          ? `<meta property="og:image" content="${escapedPreviewImageUrl}" />
+    <meta property="og:image:secure_url" content="${escapedPreviewImageUrl}" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:video" content="${escapedMediaUrl}" />
     <meta property="og:video:secure_url" content="${escapedMediaUrl}" />
     <meta property="og:video:type" content="video/mp4" />`
-          : `<meta property="og:image" content="${escapedMediaUrl}" />
-    <meta property="og:image:secure_url" content="${escapedMediaUrl}" />
+          : `<meta property="og:image" content="${escapedPreviewImageUrl}" />
+    <meta property="og:image:secure_url" content="${escapedPreviewImageUrl}" />
     <meta property="og:image:type" content="image/jpeg" />`
         : ''
     }
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapedTitle}" />
     <meta name="twitter:description" content="${escapedDescription}" />
-    ${escapedMediaUrl ? `<meta name="twitter:image" content="${escapedMediaUrl}" />` : ''}
+    ${escapedPreviewImageUrl ? `<meta name="twitter:image" content="${escapedPreviewImageUrl}" />` : ''}
   </head>
   <body>
     <p>Shared from UNAP</p>
