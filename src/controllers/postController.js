@@ -611,13 +611,28 @@ async function updatePost(req, res) {
     updates.attempts = buildAttemptsFromTargets(shareTargets);
   }
 
+  const requestMediaType = req.file
+    ? detectMediaType(req.file.mimetype)
+    : req.body.mediaType;
+  const requestMediaUrl = String(req.body.mediaUrl || '').trim();
+  const requestMediaPreviewUrl = String(req.body.mediaPreviewUrl || '').trim();
+
+  if (!req.file && requestMediaType && !['image', 'video', 'audio'].includes(requestMediaType)) {
+    return res.status(400).json({ error: 'Unsupported media type.' });
+  }
+
+  if ((requestMediaUrl && !requestMediaType) || (requestMediaType && !req.file && !requestMediaUrl)) {
+    return res.status(400).json({ error: 'mediaUrl and mediaType must be provided together.' });
+  }
+
+  if ((req.file || requestMediaUrl) && post.postType === 'uclip' && requestMediaType !== 'video') {
+    return res.status(400).json({ error: 'UClips must be video only.' });
+  }
+
   if (req.file) {
-    const mediaType = detectMediaType(req.file.mimetype);
+    const mediaType = requestMediaType;
     if (!mediaType) {
       return res.status(400).json({ error: 'Unsupported media type.' });
-    }
-    if (post.postType === 'uclip' && mediaType !== 'video') {
-      return res.status(400).json({ error: 'UClips must be video only.' });
     }
     try {
       let uploadBuffer = req.file.buffer;
@@ -654,6 +669,22 @@ async function updatePost(req, res) {
     } catch (err) {
       console.error('Update post upload error:', err);
       return res.status(err?.status || 500).json({ error: err?.message || 'Could not upload media.' });
+    }
+  } else if (requestMediaUrl && requestMediaType) {
+    updates.mediaType = requestMediaType;
+    updates.mediaUrl = normalizeMediaUrlForPlayback(requestMediaUrl, requestMediaType);
+    updates.mediaPreviewUrl =
+      requestMediaType === 'video'
+        ? requestMediaPreviewUrl || undefined
+        : requestMediaPreviewUrl || undefined;
+    updates.mediaPublicId = undefined;
+    updates.mimeType = undefined;
+    updates.size = undefined;
+    if (requestMediaType === 'video' && !requestMediaPreviewUrl) {
+      enqueuePreviewTask(
+        () => generateVideoPreview(post._id, updates.mediaUrl),
+        { priority: true }
+      );
     }
   }
 
@@ -1032,8 +1063,33 @@ async function updateScheduledPost(req, res) {
     updates.shareStatus = buildShareStatusFromTargets(updates.shareTargets);
   }
 
+  const requestMediaType = req.file
+    ? detectMediaType(req.file.mimetype)
+    : req.body.mediaType;
+  const requestMediaUrl = String(req.body.mediaUrl || '').trim();
+  const requestMediaPreviewUrl = String(req.body.mediaPreviewUrl || '').trim();
+
+  if (!req.file && requestMediaType && !['image', 'video', 'audio'].includes(requestMediaType)) {
+    return res.status(400).json({ error: 'Unsupported media type.' });
+  }
+
+  if ((requestMediaUrl && !requestMediaType) || (requestMediaType && !req.file && !requestMediaUrl)) {
+    return res.status(400).json({ error: 'mediaUrl and mediaType must be provided together.' });
+  }
+
+  const currentScheduledPost = await Post.findOne({ _id: postId, userId, status: 'scheduled' })
+    .select('postType')
+    .lean();
+  if (!currentScheduledPost) {
+    return res.status(404).json({ error: 'Scheduled post not found.' });
+  }
+
+  if ((req.file || requestMediaUrl) && currentScheduledPost.postType === 'uclip' && requestMediaType !== 'video') {
+    return res.status(400).json({ error: 'UClips must be video only.' });
+  }
+
   if (req.file) {
-    const mediaType = detectMediaType(req.file.mimetype);
+    const mediaType = requestMediaType;
     if (!mediaType) {
       return res.status(400).json({ error: 'Unsupported media type.' });
     }
@@ -1073,6 +1129,22 @@ async function updateScheduledPost(req, res) {
           { priority: true }
         );
       }
+    }
+  } else if (requestMediaUrl && requestMediaType) {
+    updates.mediaType = requestMediaType;
+    updates.mediaUrl = normalizeMediaUrlForPlayback(requestMediaUrl, requestMediaType);
+    updates.mediaPreviewUrl =
+      requestMediaType === 'video'
+        ? requestMediaPreviewUrl || undefined
+        : requestMediaPreviewUrl || undefined;
+    updates.mediaPublicId = undefined;
+    updates.mimeType = undefined;
+    updates.size = undefined;
+    if (requestMediaType === 'video' && !requestMediaPreviewUrl) {
+      enqueuePreviewTask(
+        () => generateVideoPreview(postId, updates.mediaUrl),
+        { priority: true }
+      );
     }
   }
 

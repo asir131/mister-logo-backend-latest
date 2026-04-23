@@ -102,7 +102,111 @@ async function unfollowUser(req, res) {
   return res.status(200).json({ following: false });
 }
 
+async function listFollowers(req, res) {
+  const { userId } = req.params;
+  const page = Math.max(1, Number(req.query.page || 1));
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit || 20)));
+
+  if (!mongoose.isValidObjectId(userId)) {
+    return res.status(400).json({ error: 'Invalid user id.' });
+  }
+
+  const [rows, total] = await Promise.all([
+    Follow.find({ followingId: userId })
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    Follow.countDocuments({ followingId: userId }),
+  ]);
+
+  const ids = rows.map((row) => String(row.followerId || '')).filter(Boolean);
+  const profiles = await Profile.find({ userId: { $in: ids } })
+    .select('userId displayName username role profileImageUrl followersCount')
+    .lean();
+  const users = await User.find({ _id: { $in: ids } }).select('name').lean();
+
+  const profileMap = new Map(
+    profiles.map((profile) => [String(profile.userId), profile])
+  );
+  const userMap = new Map(users.map((user) => [String(user._id), user]));
+
+  const items = ids.map((id) => {
+    const profile = profileMap.get(id);
+    const user = userMap.get(id);
+    return {
+      id,
+      name: profile?.displayName || profile?.username || user?.name || 'User',
+      username: profile?.username || '',
+      role: profile?.role || '',
+      profileImageUrl: profile?.profileImageUrl || '',
+      followersCount: Number(profile?.followersCount || 0),
+    };
+  });
+
+  return res.status(200).json({
+    users: items,
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit) || 1,
+  });
+}
+
+async function listFollowing(req, res) {
+  const { userId } = req.params;
+  const page = Math.max(1, Number(req.query.page || 1));
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit || 20)));
+
+  if (!mongoose.isValidObjectId(userId)) {
+    return res.status(400).json({ error: 'Invalid user id.' });
+  }
+
+  const [rows, total] = await Promise.all([
+    Follow.find({ followerId: userId })
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    Follow.countDocuments({ followerId: userId }),
+  ]);
+
+  const ids = rows.map((row) => String(row.followingId || '')).filter(Boolean);
+  const profiles = await Profile.find({ userId: { $in: ids } })
+    .select('userId displayName username role profileImageUrl followersCount')
+    .lean();
+  const users = await User.find({ _id: { $in: ids } }).select('name').lean();
+
+  const profileMap = new Map(
+    profiles.map((profile) => [String(profile.userId), profile])
+  );
+  const userMap = new Map(users.map((user) => [String(user._id), user]));
+
+  const items = ids.map((id) => {
+    const profile = profileMap.get(id);
+    const user = userMap.get(id);
+    return {
+      id,
+      name: profile?.displayName || profile?.username || user?.name || 'User',
+      username: profile?.username || '',
+      role: profile?.role || '',
+      profileImageUrl: profile?.profileImageUrl || '',
+      followersCount: Number(profile?.followersCount || 0),
+    };
+  });
+
+  return res.status(200).json({
+    users: items,
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit) || 1,
+  });
+}
+
 module.exports = {
   followUser,
   unfollowUser,
+  listFollowers,
+  listFollowing,
 };
