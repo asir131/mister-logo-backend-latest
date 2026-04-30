@@ -204,6 +204,7 @@ async function getUserOverview(req, res) {
 async function getUserPosts(req, res) {
   const { userId } = req.params;
   const { mediaType } = req.query;
+  const viewerId = new mongoose.Types.ObjectId(req.user.id);
 
   if (!mongoose.isValidObjectId(userId)) {
     return res.status(400).json({ error: 'Invalid user id.' });
@@ -245,6 +246,24 @@ async function getUserPosts(req, res) {
       { $limit: limit },
       {
         $lookup: {
+          from: 'users',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'author',
+        },
+      },
+      { $unwind: '$author' },
+      {
+        $lookup: {
+          from: 'profiles',
+          localField: 'userId',
+          foreignField: 'userId',
+          as: 'profile',
+        },
+      },
+      { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
           from: 'likes',
           let: { postId: '$_id' },
           pipeline: [
@@ -266,6 +285,77 @@ async function getUserPosts(req, res) {
         },
       },
       {
+        $lookup: {
+          from: 'posts',
+          let: { postId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$sharedFromPostId', '$$postId'] } } },
+            { $count: 'count' },
+          ],
+          as: 'shareCounts',
+        },
+      },
+      {
+        $lookup: {
+          from: 'likes',
+          let: { postId: '$_id', viewerId },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$postId', '$$postId'] },
+                    { $eq: ['$userId', '$$viewerId'] },
+                  ],
+                },
+              },
+            },
+            { $limit: 1 },
+          ],
+          as: 'viewerLike',
+        },
+      },
+      {
+        $lookup: {
+          from: 'follows',
+          let: { authorId: '$userId', viewerId },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$followingId', '$$authorId'] },
+                    { $eq: ['$followerId', '$$viewerId'] },
+                  ],
+                },
+              },
+            },
+            { $limit: 1 },
+          ],
+          as: 'viewerFollow',
+        },
+      },
+      {
+        $lookup: {
+          from: 'savedposts',
+          let: { postId: '$_id', viewerId },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$postId', '$$postId'] },
+                    { $eq: ['$userId', '$$viewerId'] },
+                  ],
+                },
+              },
+            },
+            { $limit: 1 },
+          ],
+          as: 'viewerSaved',
+        },
+      },
+      {
         $addFields: {
           likeCount: {
             $ifNull: [{ $arrayElemAt: ['$likeCounts.count', 0] }, 0],
@@ -273,17 +363,46 @@ async function getUserPosts(req, res) {
           commentCount: {
             $ifNull: [{ $arrayElemAt: ['$commentCounts.count', 0] }, 0],
           },
+          shareCount: {
+            $ifNull: [{ $arrayElemAt: ['$shareCounts.count', 0] }, 0],
+          },
+          viewerHasLiked: { $gt: [{ $size: '$viewerLike' }, 0] },
+          viewerIsFollowing: {
+            $cond: [
+              { $eq: ['$userId', viewerId] },
+              false,
+              { $gt: [{ $size: '$viewerFollow' }, 0] },
+            ],
+          },
+          viewerHasBookmarked: { $gt: [{ $size: '$viewerSaved' }, 0] },
         },
       },
       {
         $project: {
+          _id: 1,
           description: 1,
           mediaType: 1,
           mediaUrl: 1,
           mediaPreviewUrl: 1,
           createdAt: 1,
+          viewCount: 1,
           likeCount: 1,
           commentCount: 1,
+          shareCount: 1,
+          viewerHasLiked: 1,
+          viewerIsFollowing: 1,
+          viewerHasBookmarked: 1,
+          author: {
+            id: '$author._id',
+            name: '$author.name',
+            email: '$author.email',
+          },
+          profile: {
+            username: '$profile.username',
+            displayName: '$profile.displayName',
+            role: '$profile.role',
+            profileImageUrl: '$profile.profileImageUrl',
+          },
         },
       },
     ]),
