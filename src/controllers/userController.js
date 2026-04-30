@@ -12,6 +12,15 @@ function parsePaging(value, fallback, max) {
   return parsed;
 }
 
+function normalizeOptionalPostType(value) {
+  if (value === undefined || value === null || value === '') return '';
+  const normalized = String(value).trim().toLowerCase();
+  if (['upost', 'uclip', 'ushare', 'ublast'].includes(normalized)) {
+    return normalized;
+  }
+  return null;
+}
+
 function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -35,12 +44,6 @@ function calculateAge(dateOfBirth) {
 async function getSuggestedArtists(req, res) {
   const viewerId = req.user.id;
   const limit = parsePaging(req.query.limit, 10, 30);
-  const viewerProfile = await Profile.findOne({ userId: viewerId })
-    .select('role')
-    .lean();
-  const viewerRole = String(viewerProfile?.role || '')
-    .trim()
-    .toLowerCase();
 
   const following = await Follow.find({ followerId: viewerId })
     .select('followingId')
@@ -60,9 +63,6 @@ async function getSuggestedArtists(req, res) {
     {
       $match: {
         userId: { $nin: excludedIds },
-        ...(viewerRole
-          ? { role: new RegExp(`^${escapeRegex(viewerRole)}$`, 'i') }
-          : {}),
       },
     },
     {
@@ -205,6 +205,7 @@ async function getUserPosts(req, res) {
   const { userId } = req.params;
   const { mediaType } = req.query;
   const viewerId = new mongoose.Types.ObjectId(req.user.id);
+  const postType = normalizeOptionalPostType(req.query.postType);
 
   if (!mongoose.isValidObjectId(userId)) {
     return res.status(400).json({ error: 'Invalid user id.' });
@@ -221,6 +222,11 @@ async function getUserPosts(req, res) {
       .status(400)
       .json({ error: 'mediaType must be image, video, or audio.' });
   }
+  if (postType === null) {
+    return res
+      .status(400)
+      .json({ error: 'postType must be upost, uclip, ushare, or ublast.' });
+  }
 
   const page = parsePaging(req.query.page, 1);
   const limit = parsePaging(req.query.limit, 6, 24);
@@ -235,6 +241,9 @@ async function getUserPosts(req, res) {
   };
   if (normalizedMediaType) {
     match.mediaType = normalizedMediaType;
+  }
+  if (postType) {
+    match.postType = postType;
   }
 
   const [totalCount, posts] = await Promise.all([

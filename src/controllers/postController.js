@@ -48,6 +48,15 @@ function normalizePostType(value) {
   return null;
 }
 
+function normalizeOptionalPostType(value) {
+  if (value === undefined || value === null || value === '') return '';
+  const normalized = String(value).toLowerCase().trim();
+  if (['upost', 'uclip', 'ushare', 'ublast'].includes(normalized)) {
+    return normalized;
+  }
+  return null;
+}
+
 function resolveUploadResourceType(mediaType) {
   if (mediaType === 'image') return 'image';
   if (mediaType === 'video' || mediaType === 'audio') return 'video';
@@ -1185,11 +1194,18 @@ async function cancelScheduledPost(req, res) {
 async function listMyPosts(req, res) {
   const userId = req.user.id;
   const viewerId = new mongoose.Types.ObjectId(userId);
+  const postType = normalizeOptionalPostType(req.query.postType);
   const page = parsePaging(req.query.page, 1);
   const limit = parsePaging(req.query.limit, 10, 50);
   const skip = (page - 1) * limit;
 
   const match = { userId: viewerId };
+  if (postType === null) {
+    return res.status(400).json({ error: 'postType must be upost, uclip, ushare, or ublast.' });
+  }
+  if (postType) {
+    match.postType = postType;
+  }
 
   const [totalCount, posts] = await Promise.all([
     Post.countDocuments(match),
