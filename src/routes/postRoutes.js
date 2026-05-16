@@ -16,6 +16,7 @@ const {
   listMyPosts,
   listUclips,
   requestPreview,
+  searchPostsByHashtag,
 } = require('../controllers/postController');
 const { reportPost } = require('../controllers/reportController');
 
@@ -92,6 +93,7 @@ router.patch(
 router.get('/scheduled', authenticate, listScheduledPosts);
 router.get('/mine', authenticate, listMyPosts);
 router.get('/uclips', authenticate, listUclips);
+router.get('/search/hashtag', authenticate, searchPostsByHashtag);
 router.post('/:postId/preview', authenticate, requestPreview);
 router.post(
   '/:postId/report',

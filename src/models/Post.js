@@ -17,9 +17,10 @@ const postSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     description: { type: String },
-    mediaType: { type: String, enum: ['image', 'video', 'audio'], required: true },
-    mediaUrl: { type: String, required: true },
+    mediaType: { type: String, enum: ['image', 'video', 'audio'], required: false },
+    mediaUrl: { type: String, required: false },
     mediaPreviewUrl: { type: String },
+    mediaOriginalUrl: { type: String }, // Original image URL (for full view when clicked)
     mediaPublicId: { type: String },
     mimeType: { type: String },
     size: { type: Number },

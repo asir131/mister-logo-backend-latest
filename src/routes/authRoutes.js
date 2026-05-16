@@ -380,7 +380,11 @@ router.post(
   '/register',
   [
     body('name').trim().notEmpty().withMessage('Name is required'),
-    body('email').trim().isEmail().withMessage('Valid email is required'),
+    body('email')
+      .trim()
+      .toLowerCase()
+      .matches(/^[^\s@]+@.+$/)
+      .withMessage('Valid email is required'),
     body('phoneNumber').trim().notEmpty().withMessage('Phone number is required'),
     body('countryIso').optional({ nullable: true }).isString(),
     body('password')
@@ -396,7 +400,11 @@ router.post(
 router.post(
   '/verify-phone-otp',
   [
-    body('email').trim().isEmail().withMessage('Valid email is required'),
+    body('email')
+      .trim()
+      .toLowerCase()
+      .matches(/^[^\s@]+@.+$/)
+      .withMessage('Valid email is required'),
     body('phoneNumber').trim().notEmpty().withMessage('Phone number is required'),
     body('otp')
       .trim()
@@ -409,7 +417,11 @@ router.post(
 router.post(
   '/verify-otp',
   [
-    body('email').trim().isEmail().withMessage('Valid email is required'),
+    body('email')
+      .trim()
+      .toLowerCase()
+      .matches(/^[^\s@]+@.+$/)
+      .withMessage('Valid email is required'),
     body('otp')
       .trim()
       .isLength({ min: 5, max: 5 })
@@ -455,14 +467,22 @@ router.post(
 
 router.post(
   '/forgot-password',
-  [body('email').trim().isEmail().withMessage('Valid email is required')],
+  [body('email')
+    .trim()
+    .toLowerCase()
+    .matches(/^[^\s@]+@.+$/)
+    .withMessage('Valid email is required')],
   forgotPassword,
 );
 
 router.post(
   '/verify-reset-otp',
   [
-    body('email').trim().isEmail().withMessage('Valid email is required'),
+    body('email')
+      .trim()
+      .toLowerCase()
+      .matches(/^[^\s@]+@.+$/)
+      .withMessage('Valid email is required'),
     body('otp')
       .trim()
       .isLength({ min: 5, max: 5 })

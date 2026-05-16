@@ -306,15 +306,18 @@ async function createPost(req, res) {
   const mediaPreviewUrl = req.body.mediaPreviewUrl;
   const mediaType = hasFile ? detectMediaType(req.file.mimetype) : req.body.mediaType;
 
-  if (!hasFile && (!mediaUrl || !mediaType)) {
-    return res.status(400).json({ error: 'Media file or mediaUrl+mediaType is required.' });
+  // Media is optional for UPost, but required for UClip, UShare, and UBlast
+  const isMediaRequired = postType !== 'upost';
+
+  if (isMediaRequired && !hasFile && (!mediaUrl || !mediaType)) {
+    return res.status(400).json({ error: `Media file or mediaUrl+mediaType is required for ${postType}.` });
   }
 
   if (hasFile && !mediaType) {
     return res.status(400).json({ error: 'Unsupported media type.' });
   }
 
-  if (!hasFile && !['image', 'video', 'audio'].includes(mediaType)) {
+  if (!hasFile && mediaType && !['image', 'video', 'audio'].includes(mediaType)) {
     return res.status(400).json({ error: 'Unsupported media type.' });
   }
 
@@ -322,9 +325,9 @@ async function createPost(req, res) {
     return res.status(400).json({ error: 'UClips must be video only.' });
   }
 
-  let resolvedMediaUrl = normalizeMediaUrlForPlayback(mediaUrl, mediaType);
+  let resolvedMediaUrl = mediaUrl ? normalizeMediaUrlForPlayback(mediaUrl, mediaType) : null;
 
-  if (!mediaType) {
+  if (mediaType && !['image', 'video', 'audio'].includes(mediaType)) {
     return res.status(400).json({ error: 'Unsupported media type.' });
   }
 
@@ -395,6 +398,7 @@ async function createPost(req, res) {
       mediaType,
       mediaUrl: resolvedMediaUrl,
       mediaPreviewUrl: mediaPreviewUrl || undefined,
+      mediaOriginalUrl: req.body.mediaOriginalUrl || undefined,
       postType,
       mediaPublicId: hasFile ? uploadResult.public_id : undefined,
       mimeType: hasFile ? uploadMimetype : undefined,
@@ -798,7 +802,8 @@ async function sharePostInternal({ userId, postId, target }) {
   }
 
   const normalizedTarget = normalizeShareTarget(target);
-  const strictExternalOnlyTargets = new Set(['youtube']);
+  // Platforms that should ONLY share externally, not create UNAP feed post
+  const strictExternalOnlyTargets = new Set(['youtube', 'snapchat', 'tiktok', 'twitter']);
   const externalTargets = new Set([
     'instagram',
     'twitter',
@@ -1846,6 +1851,102 @@ async function requestPreview(req, res) {
   return res.status(202).json({ status: 'processing' });
 }
 
+async function searchPostsByHashtag(req, res) {
+  try {
+    const { hashtag } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const viewerId = new mongoose.Types.ObjectId(req.user.id);
+
+    if (!hashtag || typeof hashtag !== 'string' || hashtag.trim().length === 0) {
+      return res.status(400).json({ error: 'Hashtag is required.' });
+    }
+
+    const skip = (page - 1) * limit;
+    const hashtagRegex = new RegExp(`#${hashtag.replace(/[#\s]/g, '')}\\b`, 'i');
+
+    // Search for posts containing the hashtag in description
+    const [totalCount, posts] = await Promise.all([
+      Post.countDocuments({
+        description: hashtagRegex,
+        status: 'published',
+      }),
+      Post.aggregate([
+        {
+          $match: {
+            description: hashtagRegex,
+            status: 'published',
+          },
+        },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'userId',
+            foreignField: '_id',
+            as: 'author',
+          },
+        },
+        { $unwind: '$author' },
+        {
+          $lookup: {
+            from: 'profiles',
+            localField: 'userId',
+            foreignField: 'userId',
+            as: 'profile',
+          },
+        },
+        { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            _id: 1,
+            userId: 1,
+            description: 1,
+            mediaType: 1,
+            mediaUrl: 1,
+            mediaPreviewUrl: 1,
+            mediaOriginalUrl: 1,
+            postType: 1,
+            createdAt: 1,
+            likeCount: { $literal: 0 },
+            commentCount: { $literal: 0 },
+            shareCount: { $literal: 0 },
+            viewCount: 1,
+            author: {
+              _id: '$author._id',
+              id: '$author._id',
+              name: '$author.name',
+              email: '$author.email',
+            },
+            profile: {
+              displayName: '$profile.displayName',
+              profileImageUrl: '$profile.profileImageUrl',
+              role: '$profile.role',
+              username: '$profile.username',
+            },
+            viewerHasLiked: { $literal: false },
+            viewerIsFollowing: { $literal: false },
+          },
+        },
+      ]),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return res.status(200).json({
+      posts,
+      page,
+      totalPages,
+      totalCount,
+    });
+  } catch (error) {
+    console.error('Error searching posts by hashtag:', error);
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+}
+
 module.exports = {
   createPost,
   deletePost,
@@ -1860,5 +1961,6 @@ module.exports = {
   listMyPosts,
   listUclips,
   requestPreview,
+  searchPostsByHashtag,
 };
 
