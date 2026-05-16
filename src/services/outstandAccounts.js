@@ -4,7 +4,6 @@ const outstandApi = require('./outstandApi');
 function normalizePlatformName(value) {
   const platform = String(value || '').toLowerCase().trim();
   if (!platform) return '';
-  if (platform === 'twitter') return 'x';
   if (platform === 'x') return 'twitter';
   return platform;
 }

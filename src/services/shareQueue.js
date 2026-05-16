@@ -18,23 +18,6 @@ async function enqueuePostShare(post) {
   const targets = normalizeTargets(post);
   if (targets.length === 0) return;
 
-  const skipTargets = new Set();
-  if (targets.includes("twitter")) {
-    skipTargets.add("twitter");
-    await Post.updateOne(
-      { _id: post._id },
-      {
-        $set: {
-          "shareStatus.twitter": {
-            status: "skipped",
-            error: "User-initiated share required.",
-            updatedAt: new Date(),
-          },
-        },
-      },
-    );
-  }
-
   setImmediate(() => {
     console.log(
       `Queued post ${post._id} for Outstand share: ${targets.join(", ")}`,
@@ -42,7 +25,7 @@ async function enqueuePostShare(post) {
   });
 
   try {
-    const shareTargets = targets.filter((target) => !skipTargets.has(target));
+    const shareTargets = targets;
     if (shareTargets.length === 0) return;
     const { accountIds, missing } = await resolveAccountsForUser(
       post.userId,

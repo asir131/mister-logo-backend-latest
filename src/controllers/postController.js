@@ -423,23 +423,7 @@ async function createPost(req, res) {
 
     if (isScheduled && shareTargets.length > 0) {
       try {
-        const shareTargetsForOutstand = shareTargets.filter(
-          (target) => target !== "twitter",
-        );
-        if (shareTargets.includes("twitter")) {
-          await Post.updateOne(
-            { _id: created._id },
-            {
-              $set: {
-                "shareStatus.twitter": {
-                  status: "skipped",
-                  error: "User-initiated share required.",
-                  updatedAt: new Date(),
-                },
-              },
-            },
-          );
-        }
+        const shareTargetsForOutstand = shareTargets;
         if (shareTargetsForOutstand.length === 0) {
           return res.status(201).json({
             message: 'Post scheduled successfully.',
@@ -841,12 +825,6 @@ async function sharePostInternal({ userId, postId, target }) {
   let targetWarning = null;
 
   let accountIds = [];
-  if (externalTarget === "twitter") {
-    targetWarning = "X share must be user-initiated.";
-    externalTarget = '';
-    shareTargets = [];
-  }
-
   if (externalTarget) {
     try {
       const resolved = await resolveAccountsForUser(userId, [externalTarget]);
