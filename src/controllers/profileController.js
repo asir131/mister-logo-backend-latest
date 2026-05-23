@@ -27,10 +27,11 @@ function normalizeDateOfBirth(value) {
 
 async function uploadProfileImage(file, userId) {
   if (!file) return null;
+  const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const result = await uploadImageBuffer(file.buffer, {
     folder: 'unap/profile',
-    public_id: `profile_${userId}`,
-    overwrite: true,
+    public_id: `profile_${userId}_${uploadId}`,
+    overwrite: false,
     resource_type: 'image',
     contentType: file.mimetype,
   });
