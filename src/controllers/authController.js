@@ -601,6 +601,7 @@ async function googleAuthSuccess(req, res) {
 function mapFirebaseProvider(signInProvider) {
   if (signInProvider === 'google.com') return 'google';
   if (signInProvider === 'facebook.com') return 'facebook';
+  if (signInProvider === 'apple.com') return 'apple';
   return 'local';
 }
 
@@ -608,7 +609,12 @@ function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function findUserForFirebaseLogin({ email, googleIdentity, facebookIdentity }) {
+async function findUserForFirebaseLogin({
+  email,
+  googleIdentity,
+  facebookIdentity,
+  appleIdentity,
+}) {
   const orQuery = [];
   if (email) {
     orQuery.push({ email });
@@ -616,6 +622,7 @@ async function findUserForFirebaseLogin({ email, googleIdentity, facebookIdentit
   }
   if (googleIdentity) orQuery.push({ googleId: String(googleIdentity) });
   if (facebookIdentity) orQuery.push({ facebookId: String(facebookIdentity) });
+  if (appleIdentity) orQuery.push({ appleId: String(appleIdentity) });
   if (!orQuery.length) return null;
   return User.findOne({ $or: orQuery });
 }
@@ -628,6 +635,7 @@ async function firebaseLogin(req, res) {
   let email = '';
   let googleIdentity = null;
   let facebookIdentity = null;
+  let appleIdentity = null;
 
   try {
     const firebaseAuth = getFirebaseAuth();
@@ -643,6 +651,7 @@ async function firebaseLogin(req, res) {
     const identities = decoded?.firebase?.identities || {};
     googleIdentity = identities?.['google.com']?.[0] || null;
     facebookIdentity = identities?.['facebook.com']?.[0] || null;
+    appleIdentity = identities?.['apple.com']?.[0] || null;
     const displayName =
       req.body?.name || decoded?.name || email.split('@')[0] || 'User';
     const phoneNumber = req.body?.phoneNumber || decoded?.phone_number || undefined;
@@ -653,6 +662,7 @@ async function firebaseLogin(req, res) {
       email,
       googleIdentity,
       facebookIdentity,
+      appleIdentity,
     });
 
     if (!user) {
@@ -665,6 +675,7 @@ async function firebaseLogin(req, res) {
           avatarUrl,
           googleId: googleIdentity ? String(googleIdentity) : undefined,
           facebookId: facebookIdentity ? String(facebookIdentity) : undefined,
+          appleId: appleIdentity ? String(appleIdentity) : undefined,
           authProvider: provider,
         });
       } catch (err) {
@@ -673,6 +684,7 @@ async function firebaseLogin(req, res) {
           email,
           googleIdentity,
           facebookIdentity,
+          appleIdentity,
         });
         if (!user) throw err;
         isFirstLogin = false;
@@ -707,6 +719,14 @@ async function firebaseLogin(req, res) {
         });
         if (!facebookTaken) updates.facebookId = facebookIdValue;
       }
+      if (appleIdentity && !user.appleId) {
+        const appleIdValue = String(appleIdentity);
+        const appleTaken = await User.exists({
+          appleId: appleIdValue,
+          _id: { $ne: user._id },
+        });
+        if (!appleTaken) updates.appleId = appleIdValue;
+      }
 
       if (Object.keys(updates).length > 0) {
         try {
@@ -717,6 +737,7 @@ async function firebaseLogin(req, res) {
             email,
             googleIdentity,
             facebookIdentity,
+            appleIdentity,
           });
           if (!user) throw err;
         }
@@ -752,6 +773,7 @@ async function firebaseLogin(req, res) {
           email,
           googleIdentity,
           facebookIdentity,
+          appleIdentity,
         });
         if (recoveredUser) {
           const existingProfile = await Profile.findOne({

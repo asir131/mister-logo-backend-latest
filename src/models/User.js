@@ -9,10 +9,11 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String },
     facebookId: { type: String, unique: true, sparse: true },
     googleId: { type: String, unique: true, sparse: true },
+    appleId: { type: String, unique: true, sparse: true },
     instagramId: { type: String, unique: true, sparse: true },
     authProvider: {
       type: String,
-      enum: ['local', 'facebook', 'google', 'instagram'],
+      enum: ['local', 'facebook', 'google', 'apple', 'instagram'],
       default: 'local',
     },
     isBlocked: { type: Boolean, default: false },
