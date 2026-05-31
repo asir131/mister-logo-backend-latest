@@ -609,6 +609,16 @@ function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function buildApplePlaceholderEmail(decodedUid, appleIdentity) {
+  const rawId = appleIdentity || decodedUid || crypto.randomBytes(16).toString('hex');
+  const localPart = String(rawId)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '_')
+    .replace(/^[._-]+|[._-]+$/g, '')
+    .slice(0, 120);
+  return `apple_${localPart || 'user'}@privaterelay.unap.local`;
+}
+
 async function findUserForFirebaseLogin({
   email,
   googleIdentity,
@@ -633,37 +643,56 @@ async function firebaseLogin(req, res) {
 
   const { idToken } = req.body;
   let email = '';
+  let decodedUid = null;
+  let signInProvider = '';
+  let provider = 'local';
+  let decodedEmailPresent = false;
   let googleIdentity = null;
   let facebookIdentity = null;
   let appleIdentity = null;
+  let effectiveAppleId = null;
 
   try {
     const firebaseAuth = getFirebaseAuth();
     const decoded = await firebaseAuth.verifyIdToken(idToken, true);
 
-    email = decoded?.email ? String(decoded.email).toLowerCase() : '';
-    if (!email) {
-      return res.status(400).json({ error: 'Firebase token has no email.' });
-    }
-
-    const signInProvider = decoded?.firebase?.sign_in_provider || '';
-    const provider = mapFirebaseProvider(signInProvider);
+    decodedUid = decoded?.uid || null;
+    signInProvider = decoded?.firebase?.sign_in_provider || '';
+    provider = mapFirebaseProvider(signInProvider);
     const identities = decoded?.firebase?.identities || {};
     googleIdentity = identities?.['google.com']?.[0] || null;
     facebookIdentity = identities?.['facebook.com']?.[0] || null;
     appleIdentity = identities?.['apple.com']?.[0] || null;
+    const isAppleProvider = signInProvider === 'apple.com';
+    effectiveAppleId = isAppleProvider ? appleIdentity || decodedUid : appleIdentity;
+
+    email = decoded?.email ? String(decoded.email).toLowerCase() : '';
+    decodedEmailPresent = Boolean(email);
+    if (!email) {
+      if (!isAppleProvider) {
+        return res.status(400).json({ error: 'Firebase token has no email.' });
+      }
+      email = buildApplePlaceholderEmail(decodedUid, effectiveAppleId);
+    }
+
     const displayName =
       req.body?.name || decoded?.name || email.split('@')[0] || 'User';
     const phoneNumber = req.body?.phoneNumber || decoded?.phone_number || undefined;
     const avatarUrl = req.body?.photoURL || decoded?.picture || undefined;
     let isFirstLogin = false;
 
-    let user = await findUserForFirebaseLogin({
-      email,
-      googleIdentity,
-      facebookIdentity,
-      appleIdentity,
-    });
+    let user = null;
+    if (isAppleProvider && effectiveAppleId) {
+      user = await User.findOne({ appleId: String(effectiveAppleId) });
+    }
+    if (!user) {
+      user = await findUserForFirebaseLogin({
+        email,
+        googleIdentity,
+        facebookIdentity,
+        appleIdentity: effectiveAppleId,
+      });
+    }
 
     if (!user) {
       isFirstLogin = true;
@@ -675,7 +704,7 @@ async function firebaseLogin(req, res) {
           avatarUrl,
           googleId: googleIdentity ? String(googleIdentity) : undefined,
           facebookId: facebookIdentity ? String(facebookIdentity) : undefined,
-          appleId: appleIdentity ? String(appleIdentity) : undefined,
+          appleId: effectiveAppleId ? String(effectiveAppleId) : undefined,
           authProvider: provider,
         });
       } catch (err) {
@@ -684,7 +713,7 @@ async function firebaseLogin(req, res) {
           email,
           googleIdentity,
           facebookIdentity,
-          appleIdentity,
+          appleIdentity: effectiveAppleId,
         });
         if (!user) throw err;
         isFirstLogin = false;
@@ -719,8 +748,8 @@ async function firebaseLogin(req, res) {
         });
         if (!facebookTaken) updates.facebookId = facebookIdValue;
       }
-      if (appleIdentity && !user.appleId) {
-        const appleIdValue = String(appleIdentity);
+      if (effectiveAppleId && !user.appleId) {
+        const appleIdValue = String(effectiveAppleId);
         const appleTaken = await User.exists({
           appleId: appleIdValue,
           _id: { $ne: user._id },
@@ -737,7 +766,7 @@ async function firebaseLogin(req, res) {
             email,
             googleIdentity,
             facebookIdentity,
-            appleIdentity,
+            appleIdentity: effectiveAppleId,
           });
           if (!user) throw err;
         }
@@ -773,7 +802,7 @@ async function firebaseLogin(req, res) {
           email,
           googleIdentity,
           facebookIdentity,
-          appleIdentity,
+          appleIdentity: effectiveAppleId,
         });
         if (recoveredUser) {
           const existingProfile = await Profile.findOne({
@@ -794,12 +823,28 @@ async function firebaseLogin(req, res) {
       } catch (recoverErr) {
         console.error('Firebase duplicate recovery error:', recoverErr);
       }
+      console.error('Firebase login duplicate error:', {
+        provider,
+        decodedUid,
+        hasEmail: decodedEmailPresent,
+        hasAppleIdentity: Boolean(appleIdentity),
+        code: err?.code,
+        message: err?.message,
+      });
       return res.status(400).json({ error: 'Could not login with Firebase token.' });
     }
     if (err?.code && String(err.code).startsWith('auth/')) {
       return res.status(401).json({ error: 'Invalid Firebase token.' });
     }
-    console.error('Firebase login error:', err);
+    console.error('Firebase login error:', {
+      provider,
+      decodedUid,
+      hasEmail: decodedEmailPresent,
+      hasAppleIdentity: Boolean(appleIdentity),
+      code: err?.code,
+      message: err?.message,
+      error: err,
+    });
     return res.status(500).json({ error: 'Could not login with Firebase token.' });
   }
 }
