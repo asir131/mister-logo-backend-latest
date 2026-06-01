@@ -6,6 +6,16 @@ let adminApp = null;
 let messagingInstance = null;
 let authInstance = null;
 
+function resolveFirebaseProjectId(serviceAccount) {
+  return (
+    process.env.FIREBASE_PROJECT_ID ||
+    serviceAccount?.project_id ||
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GCLOUD_PROJECT ||
+    'unap-4de1a'
+  );
+}
+
 function readJsonFile(filePath, invalidMessage) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -100,17 +110,21 @@ function getFirebaseAdminApp() {
     if (serviceAccount) {
       adminApp = admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
+        projectId: resolveFirebaseProjectId(serviceAccount),
       });
     } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
       const googleServiceAccount = getGoogleCredentialsFromEnvFile();
       adminApp = admin.initializeApp({
         credential: admin.credential.cert(googleServiceAccount),
+        projectId: resolveFirebaseProjectId(googleServiceAccount),
       });
     } else {
       // Cloud Run and other Google-hosted runtimes expose Application Default
       // Credentials through the metadata server. Let firebase-admin resolve them
       // when no explicit service account is configured.
-      adminApp = admin.initializeApp();
+      adminApp = admin.initializeApp({
+        projectId: resolveFirebaseProjectId(),
+      });
     }
   } else {
     adminApp = admin.app();
