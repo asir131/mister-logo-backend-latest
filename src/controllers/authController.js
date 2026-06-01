@@ -654,7 +654,7 @@ async function firebaseLogin(req, res) {
 
   try {
     const firebaseAuth = getFirebaseAuth();
-    const decoded = await firebaseAuth.verifyIdToken(idToken, true);
+    const decoded = await firebaseAuth.verifyIdToken(idToken);
 
     decodedUid = decoded?.uid || null;
     signInProvider = decoded?.firebase?.sign_in_provider || '';
@@ -834,6 +834,10 @@ async function firebaseLogin(req, res) {
       return res.status(400).json({ error: 'Could not login with Firebase token.' });
     }
     if (err?.code && String(err.code).startsWith('auth/')) {
+      console.error('Firebase token verification error:', {
+        code: err?.code,
+        message: err?.message,
+      });
       return res.status(401).json({ error: 'Invalid Firebase token.' });
     }
     console.error('Firebase login error:', {
@@ -864,7 +868,6 @@ module.exports = {
   facebookAuthSuccess,
   googleAuthSuccess,
 };
-
 
 
 
