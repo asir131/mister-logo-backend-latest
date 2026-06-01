@@ -107,9 +107,10 @@ function getFirebaseAdminApp() {
         credential: admin.credential.cert(googleServiceAccount),
       });
     } else {
-      throw new Error(
-        'Firebase credentials are missing. Set FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_SERVICE_ACCOUNT_BASE64, FIREBASE_SERVICE_ACCOUNT_PATH, or GOOGLE_APPLICATION_CREDENTIALS.',
-      );
+      // Cloud Run and other Google-hosted runtimes expose Application Default
+      // Credentials through the metadata server. Let firebase-admin resolve them
+      // when no explicit service account is configured.
+      adminApp = admin.initializeApp();
     }
   } else {
     adminApp = admin.app();
