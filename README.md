@@ -13,11 +13,12 @@ JWT_EXPIRES_IN=1h
 MONGODB_URI=mongodb+srv://afaysal220:Faysal20122@blinkit.typzf.mongodb.net/mister
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USER=afaysal220@gmail.com
-EMAIL_PASS=npzp eabo veuk tnlr
-EMAIL_FROM=afaysal220@gmail.com
+EMAIL_HOST=mail.unitedartistsofpower.com
+EMAIL_PORT=465
+EMAIL_SECURE=true
+EMAIL_USER=no-reply@unitedartistsofpower.com
+EMAIL_PASS=your_webmail_password
+EMAIL_FROM=no-reply@unitedartistsofpower.com
 
 CLOUDINARY_CLOUD_NAME=ddty8zoxr
 CLOUDINARY_API_KEY=148938264955972

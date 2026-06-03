@@ -6,12 +6,17 @@ const {
   EMAIL_USER,
   EMAIL_PASS,
   EMAIL_FROM,
+  EMAIL_SECURE,
 } = process.env;
+
+const port = Number(EMAIL_PORT) || 587;
+const secure =
+  String(EMAIL_SECURE || '').toLowerCase() === 'true' || port === 465;
 
 const transporter = nodemailer.createTransport({
   host: EMAIL_HOST,
-  port: Number(EMAIL_PORT) || 587,
-  secure: false,
+  port,
+  secure,
   auth: {
     user: EMAIL_USER,
     pass: EMAIL_PASS,
