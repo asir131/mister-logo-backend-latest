@@ -1,5 +1,6 @@
 const express = require("express");
 const http = require("http");
+const path = require("path");
 const dotenv = require("dotenv");
 const connectDB = require("./config/db");
 const passport = require("passport");
@@ -44,7 +45,11 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const youtubeRoutes = require("./routes/youtubeRoutes");
 const { startUblastJobs } = require("./jobs/ublastScheduler");
 const { startPostScheduler } = require("./jobs/postScheduler");
-const { sharePage, shareXLink } = require("./controllers/sharePageController");
+const {
+  sharePage,
+  shareXLink,
+  appDownloadPage,
+} = require("./controllers/sharePageController");
 
 const app = express();
 const server = http.createServer(app);
@@ -80,6 +85,13 @@ app.use(
   }),
 );
 app.use(passport.initialize());
+app.use(
+  "/assets",
+  express.static(path.join(__dirname, "../public/assets"), {
+    immutable: true,
+    maxAge: "30d",
+  }),
+);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
@@ -116,6 +128,8 @@ app.get("/health", (req, res) => {
 // Public share page (Open Graph preview)
 app.get("/share/:postId", sharePage);
 app.get("/share/x/:postId", shareXLink);
+app.get("/download", appDownloadPage);
+app.get("/download/:store", appDownloadPage);
 
 // Public account deletion information page (required by Google Play policy)
 app.get("/unap-account-deletion", (req, res) => {

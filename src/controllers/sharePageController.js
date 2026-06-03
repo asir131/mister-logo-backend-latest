@@ -28,6 +28,11 @@ function buildOrigin(req) {
   return (process.env.APP_WEB_BASE_URL || '').replace(/\/$/, '');
 }
 
+function buildAbsoluteUrl(req, path) {
+  const origin = buildOrigin(req);
+  return origin ? `${origin}${path}` : path;
+}
+
 function buildAppDeepLink(postId) {
   return `unap://screens/home/post-detail?postId=${encodeURIComponent(String(postId))}`;
 }
@@ -294,6 +299,107 @@ async function sharePage(req, res) {
 
 module.exports = {
   sharePage,
+  appDownloadPage(req, res) {
+    const playStoreUrl =
+      process.env.PLAY_STORE_URL ||
+      'https://play.google.com/store/apps/details?id=com.mdalifk2002.UNAP';
+    const appStoreUrl = process.env.APP_STORE_URL || '';
+    const requestedStore = String(req.params.store || '').toLowerCase();
+    const userAgent = String(req.get('user-agent') || '').toLowerCase();
+    const wantsIos =
+      ['ios', 'app-store', 'appstore', 'apple'].includes(requestedStore) ||
+      (!requestedStore && /iphone|ipad|ipod/.test(userAgent));
+    const targetUrl = wantsIos && appStoreUrl ? appStoreUrl : playStoreUrl;
+    const canonicalPath = wantsIos ? '/download/ios' : '/download';
+    const canonicalUrl = buildAbsoluteUrl(req, canonicalPath);
+    const imageUrl = buildAbsoluteUrl(req, '/assets/unap-share-thumbnail.jpg');
+    const title = 'UNAP';
+    const description =
+      'United Artists of Power. Create, share, and connect with artists on UNAP.';
+    const escapedTargetUrl = escapeHtml(targetUrl);
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
+    <meta name="description" content="${escapeHtml(description)}" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
+    <meta property="og:site_name" content="UNAP" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="${escapeHtml(imageUrl)}" />
+    <meta property="og:image:secure_url" content="${escapeHtml(imageUrl)}" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="UNAP app logo" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    <meta name="twitter:image" content="${escapeHtml(imageUrl)}" />
+    <meta http-equiv="refresh" content="2; url=${escapedTargetUrl}" />
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #000;
+        color: #fff;
+        font-family: Arial, sans-serif;
+        text-align: center;
+        padding: 24px;
+      }
+      main { width: min(420px, 100%); }
+      img {
+        display: block;
+        width: 100%;
+        max-width: 360px;
+        margin: 0 auto 24px;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 36px;
+        letter-spacing: 0;
+      }
+      p {
+        margin: 0 0 22px;
+        color: #d4d4d4;
+        line-height: 1.5;
+      }
+      a {
+        display: inline-block;
+        border: 1px solid #fff;
+        border-radius: 8px;
+        padding: 12px 18px;
+        color: #000;
+        background: #fff;
+        font-weight: 700;
+        text-decoration: none;
+      }
+    </style>
+    <script>
+      window.setTimeout(function () {
+        window.location.href = ${JSON.stringify(targetUrl)};
+      }, 700);
+    </script>
+  </head>
+  <body>
+    <main>
+      <img src="${escapeHtml(imageUrl)}" alt="UNAP app logo" />
+      <h1>UNAP</h1>
+      <p>Opening the app store...</p>
+      <a href="${escapedTargetUrl}">Open store</a>
+    </main>
+  </body>
+</html>`);
+  },
   async shareXLink(req, res) {
     try {
       const { postId } = req.params;
