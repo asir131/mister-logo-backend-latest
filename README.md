@@ -16,6 +16,7 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 EMAIL_HOST=mail.unitedartistsofpower.com
 EMAIL_PORT=465
 EMAIL_SECURE=true
+EMAIL_TLS_SERVERNAME=prod.phx3.secureserver.net
 EMAIL_USER=no-reply@unitedartistsofpower.com
 EMAIL_PASS=your_webmail_password
 EMAIL_FROM=no-reply@unitedartistsofpower.com

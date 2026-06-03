@@ -7,6 +7,7 @@ const {
   EMAIL_PASS,
   EMAIL_FROM,
   EMAIL_SECURE,
+  EMAIL_TLS_SERVERNAME,
 } = process.env;
 
 const port = Number(EMAIL_PORT) || 587;
@@ -21,6 +22,7 @@ const transporter = nodemailer.createTransport({
     user: EMAIL_USER,
     pass: EMAIL_PASS,
   },
+  tls: EMAIL_TLS_SERVERNAME ? { servername: EMAIL_TLS_SERVERNAME } : undefined,
 });
 
 async function sendOtpEmail(to, otp) {
