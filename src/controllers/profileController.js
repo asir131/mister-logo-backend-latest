@@ -434,15 +434,26 @@ async function getUsnapThumbnail(req, res) {
       return res.status(404).json({ error: 'USnap video not found.' });
     }
 
+    const previousThumbnailUrl = profile.usnapThumbnailUrl || '';
+    const force = req.body?.force === true || req.body?.force === 'true';
     profile = await ensureUsnapThumbnail(profile, {
-      force: req.body?.force === true || req.body?.force === 'true',
+      force,
     });
     const thumbnailUrl = profile.usnapThumbnailUrl || '';
     if (!thumbnailUrl) {
-      return res.status(202).json({ status: 'processing' });
+      return res.status(202).json({
+        status: 'processing',
+        reason: 'thumbnail_generation_failed_or_not_ready',
+        hasVideoUrl: true,
+        hadThumbnailUrl: Boolean(previousThumbnailUrl),
+      });
     }
 
-    return res.status(200).json({ thumbnailUrl });
+    return res.status(200).json({
+      thumbnailUrl,
+      repaired: force && thumbnailUrl !== previousThumbnailUrl,
+      hadThumbnailUrl: Boolean(previousThumbnailUrl),
+    });
   } catch (err) {
     console.error('USnap thumbnail error:', err);
     return res.status(500).json({ error: 'Could not generate USnap thumbnail.' });
