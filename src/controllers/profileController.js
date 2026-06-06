@@ -2,7 +2,7 @@ const { validationResult } = require('express-validator');
 
 const Profile = require('../models/Profile');
 const { uploadImageBuffer, uploadMediaBuffer } = require('../services/mediaStorage');
-const { createPreviewFromUrl } = require('../services/videoPreview');
+const { createPreviewFromUrl, getVideoDurationSeconds } = require('../services/videoPreview');
 const {
   createSignedReadUrlFromUrl,
   createSignedReadUrlFromObjectName,
@@ -92,7 +92,28 @@ async function resolvePreviewSourceUrl(mediaUrl) {
 async function generateUsnapPreviewFromVideoUrl(videoUrl, userId, uploadId) {
   if (!videoUrl) return '';
   const sourceUrl = await resolvePreviewSourceUrl(videoUrl);
-  const seekTimes = [2.0, 5.0, 10.0, 1.0, 0.5, 0];
+  let durationSeconds = null;
+  try {
+    durationSeconds = await getVideoDurationSeconds(sourceUrl);
+  } catch {
+    durationSeconds = null;
+  }
+  const dynamicSeekTimes =
+    durationSeconds && durationSeconds > 2
+      ? [
+          durationSeconds * 0.5,
+          durationSeconds * 0.35,
+          durationSeconds * 0.65,
+          durationSeconds * 0.8,
+        ]
+      : [];
+  const seekTimes = Array.from(
+    new Set(
+      [...dynamicSeekTimes, 10.0, 5.0, 2.0, 1.0, 0.5, 0]
+        .filter((value) => Number.isFinite(value) && value >= 0)
+        .map((value) => Number(value.toFixed(2))),
+    ),
+  );
   let previewBuffer = null;
   let lastError = null;
 
@@ -265,9 +286,9 @@ async function completeProfile(req, res) {
       }
     }
     const usnapThumbnailUrl =
+      generatedDirectUsnapThumbnailUrl ||
       (await uploadUsnapThumbnail(req.files?.usnapThumbnail?.[0], userId)) ||
       usnapUpload?.thumbnailUrl ||
-      generatedDirectUsnapThumbnailUrl ||
       undefined;
 
     const created = await Profile.create({
@@ -409,7 +430,7 @@ async function updateProfile(req, res) {
       }
       updates.usnapVideoUrl = usnapUpload?.videoUrl || '';
       updates.usnapThumbnailUrl =
-        uploadedThumbnailUrl || usnapUpload?.thumbnailUrl || generatedDirectUsnapThumbnailUrl || '';
+        generatedDirectUsnapThumbnailUrl || uploadedThumbnailUrl || usnapUpload?.thumbnailUrl || '';
       updates.usnapDurationMs = usnapDurationMs;
     }
 

@@ -10,6 +10,13 @@ try {
   bundledFfmpeg = null;
 }
 
+let bundledFfprobe = null;
+try {
+  bundledFfprobe = require('ffprobe-static')?.path || null;
+} catch {
+  bundledFfprobe = null;
+}
+
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { windowsHide: true }, (error, stdout, stderr) => {
@@ -27,6 +34,37 @@ function runCommand(command, args) {
 
 function getBinaryCandidates(envKey, fallback) {
   return [process.env[envKey], bundledFfmpeg, fallback].filter(Boolean);
+}
+
+function getProbeBinaryCandidates() {
+  return [process.env.FFPROBE_PATH, bundledFfprobe, 'ffprobe'].filter(Boolean);
+}
+
+async function getVideoDurationSeconds(sourceUrl) {
+  if (!sourceUrl) return null;
+  const args = [
+    '-v',
+    'error',
+    '-show_entries',
+    'format=duration',
+    '-of',
+    'default=noprint_wrappers=1:nokey=1',
+    sourceUrl,
+  ];
+  let lastError = null;
+  for (const ffprobe of getProbeBinaryCandidates()) {
+    try {
+      const { stdout } = await runCommand(ffprobe, args);
+      const duration = Number.parseFloat(String(stdout || '').trim());
+      if (Number.isFinite(duration) && duration > 0) return duration;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (lastError) {
+    throw lastError;
+  }
+  return null;
 }
 
 async function createPreviewFromUrl({
@@ -80,4 +118,5 @@ async function createPreviewFromUrl({
 
 module.exports = {
   createPreviewFromUrl,
+  getVideoDurationSeconds,
 };
