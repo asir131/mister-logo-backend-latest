@@ -3,6 +3,13 @@ const path = require('path');
 const os = require('os');
 const { execFile } = require('child_process');
 
+let bundledFfmpeg = null;
+try {
+  bundledFfmpeg = require('ffmpeg-static');
+} catch {
+  bundledFfmpeg = null;
+}
+
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { windowsHide: true }, (error, stdout, stderr) => {
@@ -18,8 +25,8 @@ function runCommand(command, args) {
   });
 }
 
-function getBinaryPath(envKey, fallback) {
-  return process.env[envKey] || fallback;
+function getBinaryCandidates(envKey, fallback) {
+  return [process.env[envKey], bundledFfmpeg, fallback].filter(Boolean);
 }
 
 async function createPreviewFromUrl({
@@ -33,7 +40,7 @@ async function createPreviewFromUrl({
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'preview-'));
   const outputPath = path.join(tempDir, 'preview.jpg');
-  const ffmpeg = getBinaryPath('FFMPEG_PATH', 'ffmpeg');
+  const ffmpegCandidates = getBinaryCandidates('FFMPEG_PATH', 'ffmpeg');
 
   const args = [
     '-y',
@@ -51,7 +58,17 @@ async function createPreviewFromUrl({
   ];
 
   try {
-    await runCommand(ffmpeg, args);
+    let lastError = null;
+    for (const ffmpeg of ffmpegCandidates) {
+      try {
+        await runCommand(ffmpeg, args);
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (lastError) throw lastError;
     const buffer = await fs.readFile(outputPath);
     await fs.rm(tempDir, { recursive: true, force: true });
     return buffer;

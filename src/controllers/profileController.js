@@ -404,9 +404,35 @@ async function getProfile(req, res) {
   }
 }
 
+async function getUsnapThumbnail(req, res) {
+  const { id: userId } = req.user;
+
+  try {
+    let profile = await Profile.findOne({ userId }).lean();
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile not found.' });
+    }
+    if (!profile.usnapVideoUrl) {
+      return res.status(404).json({ error: 'USnap video not found.' });
+    }
+
+    profile = await ensureUsnapThumbnail(profile);
+    const thumbnailUrl = profile.usnapThumbnailUrl || '';
+    if (!thumbnailUrl) {
+      return res.status(202).json({ status: 'processing' });
+    }
+
+    return res.status(200).json({ thumbnailUrl });
+  } catch (err) {
+    console.error('USnap thumbnail error:', err);
+    return res.status(500).json({ error: 'Could not generate USnap thumbnail.' });
+  }
+}
+
 module.exports = {
   completeProfile,
   updateProfile,
   getProfile,
+  getUsnapThumbnail,
 };
 

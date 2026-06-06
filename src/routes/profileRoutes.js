@@ -7,6 +7,7 @@ const {
   completeProfile,
   updateProfile,
   getProfile,
+  getUsnapThumbnail,
 } = require('../controllers/profileController');
 
 const upload = multer({
@@ -75,6 +76,7 @@ router.post(
 );
 
 router.get('/me', authenticate, getProfile);
+router.post('/me/usnap-thumbnail', authenticate, getUsnapThumbnail);
 
 router.patch(
   '/me',
