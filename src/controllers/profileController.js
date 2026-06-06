@@ -91,10 +91,28 @@ async function resolvePreviewSourceUrl(mediaUrl) {
 
 async function generateUsnapPreviewFromVideoUrl(videoUrl, userId, uploadId) {
   if (!videoUrl) return '';
-  const previewBuffer = await createPreviewFromUrl({
-    sourceUrl: await resolvePreviewSourceUrl(videoUrl),
-    width: 720,
-  });
+  const sourceUrl = await resolvePreviewSourceUrl(videoUrl);
+  const seekTimes = [2.0, 5.0, 10.0, 1.0, 0.5, 0];
+  let previewBuffer = null;
+  let lastError = null;
+
+  for (const seekSec of seekTimes) {
+    try {
+      previewBuffer = await createPreviewFromUrl({
+        sourceUrl,
+        width: 720,
+        seekSec,
+      });
+      if (previewBuffer?.length) break;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (!previewBuffer?.length) {
+    throw lastError || new Error('Could not create USnap preview frame.');
+  }
+
   const previewResult = await uploadImageBuffer(previewBuffer, {
     folder: 'unap/usnaps/previews',
     public_id: `usnap_preview_${userId}_${uploadId}`,
@@ -145,8 +163,8 @@ async function uploadUsnapThumbnail(file, userId) {
   return result.secure_url || result.url || '';
 }
 
-async function ensureUsnapThumbnail(profile) {
-  if (!profile?.usnapVideoUrl || profile?.usnapThumbnailUrl) {
+async function ensureUsnapThumbnail(profile, options = {}) {
+  if (!profile?.usnapVideoUrl || (profile?.usnapThumbnailUrl && !options.force)) {
     return profile;
   }
 
@@ -416,7 +434,9 @@ async function getUsnapThumbnail(req, res) {
       return res.status(404).json({ error: 'USnap video not found.' });
     }
 
-    profile = await ensureUsnapThumbnail(profile);
+    profile = await ensureUsnapThumbnail(profile, {
+      force: req.body?.force === true || req.body?.force === 'true',
+    });
     const thumbnailUrl = profile.usnapThumbnailUrl || '';
     if (!thumbnailUrl) {
       return res.status(202).json({ status: 'processing' });
