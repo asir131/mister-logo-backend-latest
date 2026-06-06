@@ -247,10 +247,27 @@ async function completeProfile(req, res) {
     }
 
     const profileImageUrl = await uploadProfileImage(req.files?.profileImage?.[0] || req.file, userId);
-    const usnapUpload = await uploadUsnapVideo(req.files?.usnapVideo?.[0], userId);
+    const directUsnapVideoUrl = String(req.body.usnapVideoUrl || '').trim();
+    const usnapUpload =
+      (await uploadUsnapVideo(req.files?.usnapVideo?.[0], userId)) ||
+      (directUsnapVideoUrl ? { videoUrl: directUsnapVideoUrl, thumbnailUrl: '' } : null);
+    let generatedDirectUsnapThumbnailUrl = '';
+    if (directUsnapVideoUrl && !req.files?.usnapThumbnail?.[0]) {
+      try {
+        const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        generatedDirectUsnapThumbnailUrl = await generateUsnapPreviewFromVideoUrl(
+          directUsnapVideoUrl,
+          userId,
+          uploadId,
+        );
+      } catch (err) {
+        console.warn('USnap direct preview generation failed:', err?.message || err);
+      }
+    }
     const usnapThumbnailUrl =
       (await uploadUsnapThumbnail(req.files?.usnapThumbnail?.[0], userId)) ||
       usnapUpload?.thumbnailUrl ||
+      generatedDirectUsnapThumbnailUrl ||
       undefined;
 
     const created = await Profile.create({
@@ -364,18 +381,35 @@ async function updateProfile(req, res) {
       updates.profileImageUrl = await uploadProfileImage(req.files?.profileImage?.[0] || req.file, userId);
     }
 
-    if (req.files?.usnapVideo?.[0]) {
+    const directUsnapVideoUrl = String(req.body.usnapVideoUrl || '').trim();
+    if (req.files?.usnapVideo?.[0] || directUsnapVideoUrl) {
       const usnapDurationMs = normalizeUsnapDuration(req.body.usnapDurationMs);
       if (usnapDurationMs && usnapDurationMs > 60000) {
         return res.status(400).json({ error: 'USnap video must be 1 minute or less.' });
       }
-      const usnapUpload = await uploadUsnapVideo(req.files.usnapVideo[0], userId);
+      const usnapUpload =
+        (await uploadUsnapVideo(req.files?.usnapVideo?.[0], userId)) ||
+        { videoUrl: directUsnapVideoUrl, thumbnailUrl: '' };
       const uploadedThumbnailUrl = await uploadUsnapThumbnail(
         req.files?.usnapThumbnail?.[0],
         userId,
       );
+      let generatedDirectUsnapThumbnailUrl = '';
+      if (directUsnapVideoUrl && !uploadedThumbnailUrl) {
+        try {
+          const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          generatedDirectUsnapThumbnailUrl = await generateUsnapPreviewFromVideoUrl(
+            directUsnapVideoUrl,
+            userId,
+            uploadId,
+          );
+        } catch (err) {
+          console.warn('USnap direct preview generation failed:', err?.message || err);
+        }
+      }
       updates.usnapVideoUrl = usnapUpload?.videoUrl || '';
-      updates.usnapThumbnailUrl = uploadedThumbnailUrl || usnapUpload?.thumbnailUrl || '';
+      updates.usnapThumbnailUrl =
+        uploadedThumbnailUrl || usnapUpload?.thumbnailUrl || generatedDirectUsnapThumbnailUrl || '';
       updates.usnapDurationMs = usnapDurationMs;
     }
 
