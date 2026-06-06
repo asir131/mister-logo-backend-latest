@@ -11,10 +11,12 @@ const {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
-      const err = new Error('Only image uploads are allowed.');
+    const isProfileImage = file.fieldname === 'profileImage' && file.mimetype.startsWith('image/');
+    const isUsnapVideo = file.fieldname === 'usnapVideo' && file.mimetype.startsWith('video/');
+    if (!isProfileImage && !isUsnapVideo) {
+      const err = new Error('Only profile images and USnap videos are allowed.');
       err.status = 400;
       return cb(err);
     }
@@ -45,13 +47,17 @@ const dateOfBirthField = body('dateOfBirth')
 router.post(
   '/complete',
   authenticate,
-  upload.single('profileImage'),
+  upload.fields([
+    { name: 'profileImage', maxCount: 1 },
+    { name: 'usnapVideo', maxCount: 1 },
+  ]),
   [
     body('username').trim().notEmpty().withMessage('Username is required'),
     body('role').trim().notEmpty().withMessage('Role is required'),
     body('displayName').optional({ nullable: true }).trim(),
     dateOfBirthField,
     body('bio').optional({ nullable: true }).trim(),
+    body('usnapDurationMs').optional({ nullable: true, checkFalsy: true }).isInt({ min: 0 }),
     body('autoTranslateEnabled').optional({ nullable: true }).isBoolean().toBoolean(),
     body('preferredLanguage').optional({ nullable: true }).isString(),
     urlField('instagramUrl', 'Instagram URL'),
@@ -71,13 +77,18 @@ router.get('/me', authenticate, getProfile);
 router.patch(
   '/me',
   authenticate,
-  upload.single('profileImage'),
+  upload.fields([
+    { name: 'profileImage', maxCount: 1 },
+    { name: 'usnapVideo', maxCount: 1 },
+  ]),
   [
     body('username').optional({ nullable: true }).trim().notEmpty(),
     body('role').optional({ nullable: true }).trim(),
     body('displayName').optional({ nullable: true }).trim(),
     dateOfBirthField,
     body('bio').optional({ nullable: true }).trim(),
+    body('usnapDurationMs').optional({ nullable: true, checkFalsy: true }).isInt({ min: 0 }),
+    body('removeUsnapVideo').optional({ nullable: true }).isBoolean().toBoolean(),
     body('autoTranslateEnabled').optional({ nullable: true }).isBoolean().toBoolean(),
     body('preferredLanguage').optional({ nullable: true }).isString(),
     urlField('instagramUrl', 'Instagram URL'),

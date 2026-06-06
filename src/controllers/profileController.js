@@ -1,7 +1,8 @@
 const { validationResult } = require('express-validator');
 
 const Profile = require('../models/Profile');
-const { uploadImageBuffer } = require('../services/mediaStorage');
+const { uploadImageBuffer, uploadMediaBuffer } = require('../services/mediaStorage');
+const { createPreviewFromUrl } = require('../services/videoPreview');
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -38,6 +39,59 @@ async function uploadProfileImage(file, userId) {
   return result.secure_url || result.url;
 }
 
+function createCloudinaryVideoThumbnailUrl(videoUrl) {
+  const url = String(videoUrl || '');
+  if (!url.includes('/res.cloudinary.com/') || !url.includes('/video/upload/')) {
+    return '';
+  }
+  return url.replace(
+    '/video/upload/',
+    '/video/upload/so_1.0,f_jpg,q_85,w_720,c_limit,e_sharpen:80/',
+  );
+}
+
+async function uploadUsnapVideo(file, userId) {
+  if (!file) return null;
+  const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const result = await uploadMediaBuffer(file.buffer, {
+    folder: 'unap/usnaps',
+    public_id: `usnap_${userId}_${uploadId}`,
+    overwrite: false,
+    resource_type: 'video',
+    contentType: file.mimetype,
+  });
+  const videoUrl = result.secure_url || result.url;
+  let thumbnailUrl = createCloudinaryVideoThumbnailUrl(videoUrl);
+
+  if (!thumbnailUrl && videoUrl) {
+    try {
+      const previewBuffer = await createPreviewFromUrl({ sourceUrl: videoUrl, width: 720 });
+      const previewResult = await uploadImageBuffer(previewBuffer, {
+        folder: 'unap/usnaps/previews',
+        public_id: `usnap_preview_${userId}_${uploadId}`,
+        overwrite: false,
+        resource_type: 'image',
+        contentType: 'image/jpeg',
+      });
+      thumbnailUrl = previewResult.secure_url || previewResult.url || '';
+    } catch (err) {
+      console.warn('USnap preview generation failed:', err?.message || err);
+    }
+  }
+
+  return {
+    videoUrl,
+    thumbnailUrl,
+  };
+}
+
+function normalizeUsnapDuration(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const durationMs = Number(value);
+  if (!Number.isFinite(durationMs) || durationMs < 0) return undefined;
+  return durationMs;
+}
+
 async function completeProfile(req, res) {
   const validationError = handleValidation(req, res);
   if (validationError !== null) return;
@@ -61,7 +115,7 @@ async function completeProfile(req, res) {
     preferredLanguage,
   } = req.body;
 
-  if (!req.file) {
+  if (!req.files?.profileImage?.[0] && !req.file) {
     return res.status(400).json({ error: 'Profile image is required.' });
   }
 
@@ -77,7 +131,13 @@ async function completeProfile(req, res) {
       return res.status(409).json({ error: 'Username is already taken.' });
     }
 
-    const profileImageUrl = await uploadProfileImage(req.file, userId);
+    const usnapDurationMs = normalizeUsnapDuration(req.body.usnapDurationMs);
+    if (usnapDurationMs && usnapDurationMs > 60000) {
+      return res.status(400).json({ error: 'USnap video must be 1 minute or less.' });
+    }
+
+    const profileImageUrl = await uploadProfileImage(req.files?.profileImage?.[0] || req.file, userId);
+    const usnapUpload = await uploadUsnapVideo(req.files?.usnapVideo?.[0], userId);
 
     const created = await Profile.create({
       userId,
@@ -87,6 +147,9 @@ async function completeProfile(req, res) {
       dateOfBirth: normalizeDateOfBirth(dateOfBirth) || undefined,
       bio,
       profileImageUrl,
+      usnapVideoUrl: usnapUpload?.videoUrl || undefined,
+      usnapThumbnailUrl: usnapUpload?.thumbnailUrl || undefined,
+      usnapDurationMs,
       instagramUrl,
       tiktokUrl,
       youtubeUrl,
@@ -183,8 +246,25 @@ async function updateProfile(req, res) {
       },
     );
 
-    if (req.file) {
-      updates.profileImageUrl = await uploadProfileImage(req.file, userId);
+    if (req.files?.profileImage?.[0] || req.file) {
+      updates.profileImageUrl = await uploadProfileImage(req.files?.profileImage?.[0] || req.file, userId);
+    }
+
+    if (req.files?.usnapVideo?.[0]) {
+      const usnapDurationMs = normalizeUsnapDuration(req.body.usnapDurationMs);
+      if (usnapDurationMs && usnapDurationMs > 60000) {
+        return res.status(400).json({ error: 'USnap video must be 1 minute or less.' });
+      }
+      const usnapUpload = await uploadUsnapVideo(req.files.usnapVideo[0], userId);
+      updates.usnapVideoUrl = usnapUpload?.videoUrl || '';
+      updates.usnapThumbnailUrl = usnapUpload?.thumbnailUrl || '';
+      updates.usnapDurationMs = usnapDurationMs;
+    }
+
+    if (req.body.removeUsnapVideo === true || req.body.removeUsnapVideo === 'true') {
+      updates.usnapVideoUrl = '';
+      updates.usnapThumbnailUrl = '';
+      updates.usnapDurationMs = undefined;
     }
 
     if (Object.keys(updates).length === 0) {

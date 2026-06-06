@@ -156,7 +156,7 @@ async function register(req, res) {
       });
       await sendSms({
         to: normalizedPhone,
-        body: `Your UNAP verification code is ${phoneOtp}. This code expires in 5 minutes.`,
+        body: `Your UNAP verification code is ${phoneOtp}. This code expires in 5 minutes. Msg & data rates may apply. Reply STOP to opt out or HELP for help.`,
       });
       return res.status(200).json({
         requiresPhoneVerification: true,
@@ -186,6 +186,14 @@ async function register(req, res) {
     });
   } catch (err) {
     console.error('Registration error:', err);
+    if (err?.provider === 'telnyx') {
+      return res.status(502).json({
+        error:
+          err?.providerCode === '10004' || /source number/i.test(err?.message || '')
+            ? 'SMS sender number is invalid. Please check Telnyx sender configuration.'
+            : err.message || 'Could not send phone verification SMS.',
+      });
+    }
     return res
       .status(500)
       .json({ error: 'Could not start registration. Please try again.' });

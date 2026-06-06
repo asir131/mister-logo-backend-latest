@@ -5,13 +5,16 @@ function getTelnyxConfig() {
     TELNYX_API_KEY,
     TELNYX_FROM_NUMBER,
     TELNYX_MESSAGING_PROFILE_ID,
+    TELNYX_USE_NUMBER_POOL,
   } = process.env;
+  const useNumberPool = String(TELNYX_USE_NUMBER_POOL || '').toLowerCase() === 'true';
 
   // Log minimal config presence for debugging (no secrets).
   console.log('[Telnyx] Config check', {
     hasApiKey: Boolean(TELNYX_API_KEY),
     fromNumber: TELNYX_FROM_NUMBER || null,
     messagingProfileId: TELNYX_MESSAGING_PROFILE_ID || null,
+    useNumberPool,
   });
 
   if (!TELNYX_API_KEY) {
@@ -20,10 +23,16 @@ function getTelnyxConfig() {
     throw error;
   }
 
-  if (!TELNYX_FROM_NUMBER && !TELNYX_MESSAGING_PROFILE_ID) {
+  if (useNumberPool && !TELNYX_MESSAGING_PROFILE_ID) {
     const error = new Error(
-      'Configure TELNYX_FROM_NUMBER or TELNYX_MESSAGING_PROFILE_ID.',
+      'Configure TELNYX_MESSAGING_PROFILE_ID when TELNYX_USE_NUMBER_POOL=true.',
     );
+    error.status = 500;
+    throw error;
+  }
+
+  if (!useNumberPool && !TELNYX_FROM_NUMBER) {
+    const error = new Error('Configure TELNYX_FROM_NUMBER.');
     error.status = 500;
     throw error;
   }
@@ -32,22 +41,25 @@ function getTelnyxConfig() {
     apiKey: TELNYX_API_KEY,
     fromNumber: TELNYX_FROM_NUMBER || null,
     messagingProfileId: TELNYX_MESSAGING_PROFILE_ID || null,
+    useNumberPool,
   };
 }
 
 async function sendSms({ to, body }) {
-  const { apiKey, fromNumber, messagingProfileId } = getTelnyxConfig();
+  const { apiKey, fromNumber, messagingProfileId, useNumberPool } = getTelnyxConfig();
 
   const payload = {
     to,
     text: body,
   };
 
-  if (fromNumber) {
-    payload.from = fromNumber;
-  }
-  if (!fromNumber && messagingProfileId) {
+  if (useNumberPool) {
     payload.messaging_profile_id = messagingProfileId;
+  } else {
+    payload.from = fromNumber;
+    if (messagingProfileId) {
+      payload.messaging_profile_id = messagingProfileId;
+    }
   }
 
   const response = await fetch(TELNYX_API_URL, {
@@ -79,6 +91,8 @@ async function sendSms({ to, body }) {
       `Telnyx SMS failed with status ${response.status}.`;
     const error = new Error(message);
     error.status = response.status;
+    error.provider = 'telnyx';
+    error.providerCode = parsed?.errors?.[0]?.code || null;
     throw error;
   }
 
