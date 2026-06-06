@@ -44,10 +44,13 @@ function createCloudinaryVideoThumbnailUrl(videoUrl) {
   if (!url.includes('/res.cloudinary.com/') || !url.includes('/video/upload/')) {
     return '';
   }
-  return url.replace(
-    '/video/upload/',
-    '/video/upload/so_1.0,f_jpg,q_85,w_720,c_limit,e_sharpen:80/',
-  );
+  const withFrame = url.includes('/video/upload/so_')
+    ? url
+    : url.replace(
+        '/video/upload/',
+        '/video/upload/so_1.0,f_jpg,q_85,w_720,c_limit,e_sharpen:80/',
+      );
+  return withFrame.replace(/\.(mp4|mov|m4v|webm)(\?.*)?$/i, '.jpg$2');
 }
 
 async function uploadUsnapVideo(file, userId) {
