@@ -15,7 +15,8 @@ const upload = multer({
   fileFilter: (req, file, cb) => {
     const isProfileImage = file.fieldname === 'profileImage' && file.mimetype.startsWith('image/');
     const isUsnapVideo = file.fieldname === 'usnapVideo' && file.mimetype.startsWith('video/');
-    if (!isProfileImage && !isUsnapVideo) {
+    const isUsnapThumbnail = file.fieldname === 'usnapThumbnail' && file.mimetype.startsWith('image/');
+    if (!isProfileImage && !isUsnapVideo && !isUsnapThumbnail) {
       const err = new Error('Only profile images and USnap videos are allowed.');
       err.status = 400;
       return cb(err);
@@ -50,6 +51,7 @@ router.post(
   upload.fields([
     { name: 'profileImage', maxCount: 1 },
     { name: 'usnapVideo', maxCount: 1 },
+    { name: 'usnapThumbnail', maxCount: 1 },
   ]),
   [
     body('username').trim().notEmpty().withMessage('Username is required'),
@@ -80,6 +82,7 @@ router.patch(
   upload.fields([
     { name: 'profileImage', maxCount: 1 },
     { name: 'usnapVideo', maxCount: 1 },
+    { name: 'usnapThumbnail', maxCount: 1 },
   ]),
   [
     body('username').optional({ nullable: true }).trim().notEmpty(),

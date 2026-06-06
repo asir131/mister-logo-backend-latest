@@ -85,6 +85,19 @@ async function uploadUsnapVideo(file, userId) {
   };
 }
 
+async function uploadUsnapThumbnail(file, userId) {
+  if (!file) return '';
+  const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const result = await uploadImageBuffer(file.buffer, {
+    folder: 'unap/usnaps/previews',
+    public_id: `usnap_preview_${userId}_${uploadId}`,
+    overwrite: false,
+    resource_type: 'image',
+    contentType: file.mimetype,
+  });
+  return result.secure_url || result.url || '';
+}
+
 function normalizeUsnapDuration(value) {
   if (value === undefined || value === null || value === '') return undefined;
   const durationMs = Number(value);
@@ -138,6 +151,10 @@ async function completeProfile(req, res) {
 
     const profileImageUrl = await uploadProfileImage(req.files?.profileImage?.[0] || req.file, userId);
     const usnapUpload = await uploadUsnapVideo(req.files?.usnapVideo?.[0], userId);
+    const usnapThumbnailUrl =
+      (await uploadUsnapThumbnail(req.files?.usnapThumbnail?.[0], userId)) ||
+      usnapUpload?.thumbnailUrl ||
+      undefined;
 
     const created = await Profile.create({
       userId,
@@ -148,7 +165,7 @@ async function completeProfile(req, res) {
       bio,
       profileImageUrl,
       usnapVideoUrl: usnapUpload?.videoUrl || undefined,
-      usnapThumbnailUrl: usnapUpload?.thumbnailUrl || undefined,
+      usnapThumbnailUrl,
       usnapDurationMs,
       instagramUrl,
       tiktokUrl,
@@ -256,8 +273,12 @@ async function updateProfile(req, res) {
         return res.status(400).json({ error: 'USnap video must be 1 minute or less.' });
       }
       const usnapUpload = await uploadUsnapVideo(req.files.usnapVideo[0], userId);
+      const uploadedThumbnailUrl = await uploadUsnapThumbnail(
+        req.files?.usnapThumbnail?.[0],
+        userId,
+      );
       updates.usnapVideoUrl = usnapUpload?.videoUrl || '';
-      updates.usnapThumbnailUrl = usnapUpload?.thumbnailUrl || '';
+      updates.usnapThumbnailUrl = uploadedThumbnailUrl || usnapUpload?.thumbnailUrl || '';
       updates.usnapDurationMs = usnapDurationMs;
     }
 
