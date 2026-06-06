@@ -3,6 +3,10 @@ const { validationResult } = require('express-validator');
 const Profile = require('../models/Profile');
 const { uploadImageBuffer, uploadMediaBuffer } = require('../services/mediaStorage');
 const { createPreviewFromUrl } = require('../services/videoPreview');
+const {
+  createSignedReadUrlFromUrl,
+  createSignedReadUrlFromObjectName,
+} = require('../services/gcsStorage');
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -53,6 +57,54 @@ function createCloudinaryVideoThumbnailUrl(videoUrl) {
   return withFrame.replace(/\.(mp4|mov|m4v|webm)(\?.*)?$/i, '.jpg$2');
 }
 
+function extractObjectNameFromProxyUrl(url) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(String(url));
+    const path = parsed.pathname || '';
+    const marker = '/media/';
+    const idx = path.indexOf(marker);
+    if (idx === -1) return null;
+    const objectPath = path.slice(idx + marker.length);
+    return objectPath ? decodeURIComponent(objectPath) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolvePreviewSourceUrl(mediaUrl) {
+  let sourceUrl = mediaUrl;
+  try {
+    const proxyObjectName = extractObjectNameFromProxyUrl(mediaUrl);
+    if (proxyObjectName) {
+      const signed = await createSignedReadUrlFromObjectName(proxyObjectName, 20);
+      sourceUrl = signed.readUrl;
+    } else {
+      const signed = await createSignedReadUrlFromUrl(mediaUrl, 20);
+      sourceUrl = signed.readUrl;
+    }
+  } catch {
+    // Non-GCS/public URLs can be read directly by ffmpeg.
+  }
+  return sourceUrl;
+}
+
+async function generateUsnapPreviewFromVideoUrl(videoUrl, userId, uploadId) {
+  if (!videoUrl) return '';
+  const previewBuffer = await createPreviewFromUrl({
+    sourceUrl: await resolvePreviewSourceUrl(videoUrl),
+    width: 720,
+  });
+  const previewResult = await uploadImageBuffer(previewBuffer, {
+    folder: 'unap/usnaps/previews',
+    public_id: `usnap_preview_${userId}_${uploadId}`,
+    overwrite: false,
+    resource_type: 'image',
+    contentType: 'image/jpeg',
+  });
+  return previewResult.secure_url || previewResult.url || '';
+}
+
 async function uploadUsnapVideo(file, userId) {
   if (!file) return null;
   const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -68,15 +120,7 @@ async function uploadUsnapVideo(file, userId) {
 
   if (!thumbnailUrl && videoUrl) {
     try {
-      const previewBuffer = await createPreviewFromUrl({ sourceUrl: videoUrl, width: 720 });
-      const previewResult = await uploadImageBuffer(previewBuffer, {
-        folder: 'unap/usnaps/previews',
-        public_id: `usnap_preview_${userId}_${uploadId}`,
-        overwrite: false,
-        resource_type: 'image',
-        contentType: 'image/jpeg',
-      });
-      thumbnailUrl = previewResult.secure_url || previewResult.url || '';
+      thumbnailUrl = await generateUsnapPreviewFromVideoUrl(videoUrl, userId, uploadId);
     } catch (err) {
       console.warn('USnap preview generation failed:', err?.message || err);
     }
@@ -99,6 +143,38 @@ async function uploadUsnapThumbnail(file, userId) {
     contentType: file.mimetype,
   });
   return result.secure_url || result.url || '';
+}
+
+async function ensureUsnapThumbnail(profile) {
+  if (!profile?.usnapVideoUrl || profile?.usnapThumbnailUrl) {
+    return profile;
+  }
+
+  try {
+    const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const thumbnailUrl =
+      createCloudinaryVideoThumbnailUrl(profile.usnapVideoUrl) ||
+      (await generateUsnapPreviewFromVideoUrl(
+        profile.usnapVideoUrl,
+        profile.userId,
+        uploadId,
+      ));
+
+    if (!thumbnailUrl) return profile;
+
+    await Profile.updateOne(
+      { _id: profile._id },
+      { $set: { usnapThumbnailUrl: thumbnailUrl } },
+    );
+
+    return {
+      ...profile,
+      usnapThumbnailUrl: thumbnailUrl,
+    };
+  } catch (err) {
+    console.warn('USnap thumbnail repair failed:', err?.message || err);
+    return profile;
+  }
 }
 
 function normalizeUsnapDuration(value) {
@@ -315,10 +391,11 @@ async function getProfile(req, res) {
   const { id: userId } = req.user;
 
   try {
-    const profile = await Profile.findOne({ userId }).lean();
+    let profile = await Profile.findOne({ userId }).lean();
     if (!profile) {
       return res.status(404).json({ error: 'Profile not found.' });
     }
+    profile = await ensureUsnapThumbnail(profile);
 
     return res.status(200).json({ profile });
   } catch (err) {
