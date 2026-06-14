@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const ucutSegmentSchema = new mongoose.Schema(
   {
     url: { type: String, required: true },
+    thumbnailUrl: { type: String },
+    previewUrl: { type: String },
     order: { type: Number, required: true },
   },
   { _id: false },

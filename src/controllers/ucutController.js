@@ -7,8 +7,9 @@ const UcutComment = require('../models/UcutComment');
 const Follow = require('../models/Follow');
 const Profile = require('../models/Profile');
 const User = require('../models/User');
-const { uploadMediaBuffer } = require('../services/mediaStorage');
+const { uploadImageBuffer, uploadMediaBuffer } = require('../services/mediaStorage');
 const { splitMedia, DEFAULT_SEGMENT_SECONDS } = require('../services/mediaSplit');
+const { createPreviewFromUrl } = require('../services/videoPreview');
 const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 
 function handleValidation(req, res) {
@@ -52,6 +53,43 @@ async function canViewUcut(viewerId, ownerId) {
 
 function activeUcutFilter() {
   return { $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] };
+}
+
+function createCloudinaryVideoThumbnailUrl(videoUrl) {
+  const url = String(videoUrl || '').trim();
+  if (!url.includes('/res.cloudinary.com/') || !url.includes('/video/upload/')) {
+    return '';
+  }
+  const withFrame = url.includes('/video/upload/so_')
+    ? url
+    : url.replace(
+        '/video/upload/',
+        '/video/upload/so_1.0,f_jpg,q_85,w_720,c_limit,e_sharpen:80/',
+      );
+  return withFrame.replace(/\.(mp4|mov|m4v|webm)(\?.*)?$/i, '.jpg$2');
+}
+
+async function createUcutVideoThumbnailUrl(videoUrl, userId, order) {
+  const cloudinaryThumbnail = createCloudinaryVideoThumbnailUrl(videoUrl);
+  if (cloudinaryThumbnail) return cloudinaryThumbnail;
+
+  try {
+    const previewBuffer = await createPreviewFromUrl({
+      sourceUrl: videoUrl,
+      width: 720,
+      seekSec: 1.0,
+    });
+    const previewUpload = await uploadImageBuffer(previewBuffer, {
+      folder: 'unap/ucuts/previews',
+      resource_type: 'image',
+      contentType: 'image/jpeg',
+      public_id: `ucut_preview_${userId}_${Date.now()}_${order}`,
+    });
+    return previewUpload.secure_url || previewUpload.url || '';
+  } catch (err) {
+    console.warn('UCut video thumbnail generation failed:', err?.message || err);
+    return '';
+  }
 }
 
 function parsePaging(value, fallback, max) {
@@ -153,8 +191,14 @@ async function createUcut(req, res) {
         resource_type: uploadResourceType,
         contentType: req.file.mimetype,
       });
+      const segmentUrl = uploadResult.secure_url || uploadResult.url;
+      const thumbnailUrl =
+        mediaType === 'video'
+          ? await createUcutVideoThumbnailUrl(segmentUrl, userId, i + 1)
+          : '';
       segmentUploads.push({
-        url: uploadResult.secure_url || uploadResult.url,
+        url: segmentUrl,
+        ...(thumbnailUrl ? { thumbnailUrl, previewUrl: thumbnailUrl } : {}),
         order: i + 1,
       });
     }
@@ -178,12 +222,22 @@ async function createUcut(req, res) {
   }
 
   if (hasRemoteMedia) {
+    const thumbnailUrl =
+      remoteMediaType === 'video'
+        ? await createUcutVideoThumbnailUrl(remoteMediaUrl, userId, 1)
+        : '';
     const created = await Ucut.create({
       userId,
       type: remoteMediaType,
       mediaType: remoteMediaType,
       text: hasText ? text : undefined,
-      segments: [{ url: remoteMediaUrl, order: 1 }],
+      segments: [
+        {
+          url: remoteMediaUrl,
+          ...(thumbnailUrl ? { thumbnailUrl, previewUrl: thumbnailUrl } : {}),
+          order: 1,
+        },
+      ],
       segmentCount: 1,
       expiresAt: buildExpiryDate(),
     });

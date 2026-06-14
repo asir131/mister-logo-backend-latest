@@ -246,10 +246,6 @@ async function completeProfile(req, res) {
     preferredLanguage,
   } = req.body;
 
-  if (!req.files?.profileImage?.[0] && !req.file) {
-    return res.status(400).json({ error: 'Profile image is required.' });
-  }
-
   try {
     const existingProfile = await Profile.findOne({ userId }).lean();
     if (existingProfile) {
@@ -298,7 +294,7 @@ async function completeProfile(req, res) {
       role,
       dateOfBirth: normalizeDateOfBirth(dateOfBirth) || undefined,
       bio,
-      profileImageUrl,
+      profileImageUrl: profileImageUrl || undefined,
       usnapVideoUrl: usnapUpload?.videoUrl || undefined,
       usnapThumbnailUrl,
       usnapDurationMs,
