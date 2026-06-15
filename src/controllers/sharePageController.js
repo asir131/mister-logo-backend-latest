@@ -33,8 +33,23 @@ function buildAbsoluteUrl(req, path) {
   return origin ? `${origin}${path}` : path;
 }
 
+function buildShareImageUrl(req) {
+  return buildAbsoluteUrl(req, '/assets/unap-share-thumbnail.jpg?v=2');
+}
+
 function buildAppDeepLink(postId) {
   return `unap://screens/home/post-detail?postId=${encodeURIComponent(String(postId))}`;
+}
+
+function buildStoreFallbackUrl(req, store = '') {
+  const origin = buildOrigin(req);
+  const suffix = store ? `/${encodeURIComponent(store)}` : '';
+  return origin ? `${origin}/download${suffix}` : `/download${suffix}`;
+}
+
+function buildAndroidIntentUrl(postId, fallbackUrl) {
+  const path = `screens/home/post-detail?postId=${encodeURIComponent(String(postId))}`;
+  return `intent://${path}#Intent;scheme=unap;package=com.mdalifk2002.UNAP;S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
 }
 
 function getGcsObjectPath(rawUrl) {
@@ -99,15 +114,20 @@ async function sharePage(req, res) {
     const description = `Shared by ${authorName}`;
     const shareUrl = buildShareUrl(req, post._id);
     const appDeepLink = buildAppDeepLink(post._id);
+    const androidFallbackUrl = buildStoreFallbackUrl(req, 'android');
+    const iosFallbackUrl = buildStoreFallbackUrl(req, 'ios');
+    const defaultFallbackUrl = buildStoreFallbackUrl(req);
+    const androidIntentUrl = buildAndroidIntentUrl(post._id, androidFallbackUrl);
     const mediaType = post.mediaType || '';
     const isVideo = mediaType === 'video';
     const isImage = mediaType === 'image';
     const isAudio = mediaType === 'audio';
     const mediaUrl = buildPlayableMediaUrl(req, post.mediaUrl);
+    const fallbackImageUrl = buildShareImageUrl(req);
     const previewImageUrl = buildPlayableMediaUrl(
       req,
       post.mediaPreviewUrl || (isImage ? post.mediaUrl : ''),
-    );
+    ) || fallbackImageUrl;
     const mimeType = getMimeType(mediaType, mediaUrl);
 
     const escapedTitle = escapeHtml(title);
@@ -130,26 +150,39 @@ async function sharePage(req, res) {
     <meta property="og:url" content="${escapedShareUrl}" />
     <meta property="og:site_name" content="UNAP" />
     <meta property="og:type" content="${isVideo ? 'video.other' : 'article'}" />
+    <meta name="apple-itunes-app" content="app-argument=${escapedAppDeepLink}" />
+    <meta itemprop="name" content="${escapedTitle}" />
+    <meta itemprop="description" content="${escapedDescription}" />
+    <meta itemprop="image" content="${escapedPreviewImageUrl}" />
     ${
       escapedPreviewImageUrl
         ? isVideo
           ? `<meta property="og:image" content="${escapedPreviewImageUrl}" />
+    <meta property="og:image:url" content="${escapedPreviewImageUrl}" />
     <meta property="og:image:secure_url" content="${escapedPreviewImageUrl}" />
     <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="UNAP post preview" />
     <meta property="og:video" content="${escapedMediaUrl}" />
     <meta property="og:video:secure_url" content="${escapedMediaUrl}" />
     <meta property="og:video:type" content="${escapedMimeType}" />
     <meta property="og:video:width" content="720" />
     <meta property="og:video:height" content="1280" />`
           : `<meta property="og:image" content="${escapedPreviewImageUrl}" />
+    <meta property="og:image:url" content="${escapedPreviewImageUrl}" />
     <meta property="og:image:secure_url" content="${escapedPreviewImageUrl}" />
-    <meta property="og:image:type" content="${escapedMimeType}" />`
+    <meta property="og:image:type" content="${isImage && mediaUrl ? escapedMimeType : 'image/jpeg'}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="UNAP post preview" />`
         : ''
     }
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapedTitle}" />
     <meta name="twitter:description" content="${escapedDescription}" />
     ${escapedPreviewImageUrl ? `<meta name="twitter:image" content="${escapedPreviewImageUrl}" />` : ''}
+    ${escapedPreviewImageUrl ? `<meta name="twitter:image:alt" content="UNAP post preview" />` : ''}
     <style>
       :root {
         color-scheme: dark;
@@ -257,6 +290,35 @@ async function sharePage(req, res) {
         .open-app { padding: 9px 12px; font-size: 14px; }
       }
     </style>
+    <script>
+      (function () {
+        var deepLink = ${JSON.stringify(appDeepLink)};
+        var androidIntent = ${JSON.stringify(androidIntentUrl)};
+        var androidFallback = ${JSON.stringify(androidFallbackUrl)};
+        var iosFallback = ${JSON.stringify(iosFallbackUrl)};
+        var defaultFallback = ${JSON.stringify(defaultFallbackUrl)};
+        var ua = navigator.userAgent || '';
+        var isAndroid = /Android/i.test(ua);
+        var isIos = /iPhone|iPad|iPod/i.test(ua);
+        var isBot = /bot|crawler|spider|facebookexternalhit|twitterbot|whatsapp|telegram/i.test(ua);
+        if (isBot) return;
+
+        window.__openUnapPost = function () {
+          var fallback = isIos ? iosFallback : isAndroid ? androidFallback : defaultFallback;
+          var startedAt = Date.now();
+          window.setTimeout(function () {
+            if (Date.now() - startedAt < 2600 && !document.hidden) {
+              window.location.href = fallback;
+            }
+          }, 1600);
+          window.location.href = isAndroid ? androidIntent : deepLink;
+        };
+
+        if (isAndroid || isIos) {
+          window.setTimeout(window.__openUnapPost, 350);
+        }
+      })();
+    </script>
   </head>
   <body>
     <main>
@@ -265,7 +327,7 @@ async function sharePage(req, res) {
           <div class="mark">U</div>
           <span>UNAP</span>
         </div>
-        <a class="open-app" href="${escapedAppDeepLink}">Open in app</a>
+        <a class="open-app" href="${escapedAppDeepLink}" onclick="if(window.__openUnapPost){window.__openUnapPost();return false;}">Open in app</a>
       </div>
       <section class="player">
         ${
@@ -303,7 +365,9 @@ module.exports = {
     const playStoreUrl =
       process.env.PLAY_STORE_URL ||
       'https://play.google.com/store/apps/details?id=com.mdalifk2002.UNAP';
-    const appStoreUrl = process.env.APP_STORE_URL || '';
+    const appStoreUrl =
+      process.env.APP_STORE_URL ||
+      'https://apps.apple.com/us/search?term=UNAP';
     const requestedStore = String(req.params.store || '').toLowerCase();
     const userAgent = String(req.get('user-agent') || '').toLowerCase();
     const wantsIos =
@@ -312,7 +376,7 @@ module.exports = {
     const targetUrl = wantsIos && appStoreUrl ? appStoreUrl : playStoreUrl;
     const canonicalPath = wantsIos ? '/download/ios' : '/download';
     const canonicalUrl = buildAbsoluteUrl(req, canonicalPath);
-    const imageUrl = buildAbsoluteUrl(req, '/assets/unap-share-thumbnail.jpg');
+    const imageUrl = buildShareImageUrl(req);
     const title = 'UNAP';
     const description =
       'United Artists of Power. Create, share, and connect with artists on UNAP.';
@@ -333,15 +397,20 @@ module.exports = {
     <meta property="og:site_name" content="UNAP" />
     <meta property="og:type" content="website" />
     <meta property="og:image" content="${escapeHtml(imageUrl)}" />
+    <meta property="og:image:url" content="${escapeHtml(imageUrl)}" />
     <meta property="og:image:secure_url" content="${escapeHtml(imageUrl)}" />
     <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="UNAP app logo" />
+    <meta itemprop="name" content="${escapeHtml(title)}" />
+    <meta itemprop="description" content="${escapeHtml(description)}" />
+    <meta itemprop="image" content="${escapeHtml(imageUrl)}" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtml(title)}" />
     <meta name="twitter:description" content="${escapeHtml(description)}" />
     <meta name="twitter:image" content="${escapeHtml(imageUrl)}" />
+    <meta name="twitter:image:alt" content="UNAP app logo" />
     <meta http-equiv="refresh" content="2; url=${escapedTargetUrl}" />
     <style>
       * { box-sizing: border-box; }

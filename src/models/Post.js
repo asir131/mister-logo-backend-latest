@@ -66,6 +66,16 @@ const postSchema = new mongoose.Schema(
     },
     latePostId: { type: String, index: true },
     viewCount: { type: Number, default: 0 },
+    mentions: {
+      type: [
+        {
+          userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          username: { type: String, default: '' },
+          name: { type: String, default: '' },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true },
 );

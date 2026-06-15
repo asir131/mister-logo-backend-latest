@@ -1,5 +1,59 @@
 const { sharePostInternal } = require('./postController');
 const { shareUblastInternal } = require('./ublastController');
+const Post = require('../models/Post');
+const User = require('../models/User');
+const Profile = require('../models/Profile');
+const { sendEmail } = require('../services/emailService');
+const { sendSms } = require('../services/smsService');
+
+function buildShareUrl(req, postId) {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  if (host) {
+    return `${protocol}://${host}/share/${postId}`;
+  }
+  const fallbackBase = process.env.APP_WEB_BASE_URL || '';
+  return fallbackBase ? `${fallbackBase.replace(/\/$/, '')}/share/${postId}` : '';
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function normalizePhone(value) {
+  return String(value || '').trim().replace(/[^\d+]/g, '');
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function getSharePostPayload(req, postId) {
+  const post = await Post.findById(postId).select('_id userId description postType').lean();
+  if (!post) return null;
+
+  const [author, profile] = await Promise.all([
+    User.findById(post.userId).select('name').lean(),
+    Profile.findOne({ userId: post.userId }).select('displayName username').lean(),
+  ]);
+
+  const authorName = profile?.displayName || profile?.username || author?.name || 'Someone';
+  const description =
+    String(post.description || '').trim() ||
+    `Check out this ${post.postType || 'post'} on UNAP.`;
+  const shareUrl = buildShareUrl(req, post._id);
+
+  return {
+    authorName,
+    description,
+    shareUrl,
+  };
+}
 
 async function shareUnified(req, res) {
   const { id: userId } = req.user;
@@ -55,6 +109,72 @@ async function shareUnified(req, res) {
   return res.status(400).json({ error: 'Invalid share request.' });
 }
 
+async function sharePostByEmail(req, res) {
+  try {
+    const { postId, email } = req.body || {};
+    if (!postId) {
+      return res.status(400).json({ error: 'postId is required.' });
+    }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'Valid email is required.' });
+    }
+
+    const payload = await getSharePostPayload(req, postId);
+    if (!payload) {
+      return res.status(404).json({ error: 'Post not found.' });
+    }
+
+    await sendEmail({
+      to: String(email).trim(),
+      subject: `${payload.authorName} shared a UNAP post with you`,
+      text: `${payload.description}\n\nOpen on UNAP:\n${payload.shareUrl}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111">
+          <h2 style="margin:0 0 12px">UNAP Post</h2>
+          <p>${escapeHtml(payload.authorName)} shared a post with you.</p>
+          <p>${escapeHtml(payload.description)}</p>
+          <p><a href="${escapeHtml(payload.shareUrl)}" style="display:inline-block;background:#111;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none">Open Post</a></p>
+          <p style="font-size:12px;color:#666">${escapeHtml(payload.shareUrl)}</p>
+        </div>
+      `,
+    });
+
+    return res.status(200).json({ message: 'Post link sent by email.' });
+  } catch (err) {
+    console.error('Share email failed:', err?.message || err);
+    return res.status(err?.status || 502).json({
+      error:
+        'Email delivery failed. Please check SMTP username/password and try again.',
+    });
+  }
+}
+
+async function sharePostBySms(req, res) {
+  const { postId, phoneNumber } = req.body || {};
+  if (!postId) {
+    return res.status(400).json({ error: 'postId is required.' });
+  }
+
+  const to = normalizePhone(phoneNumber);
+  if (!/^\+\d{8,15}$/.test(to)) {
+    return res.status(400).json({ error: 'Phone number must include country code.' });
+  }
+
+  const payload = await getSharePostPayload(req, postId);
+  if (!payload) {
+    return res.status(404).json({ error: 'Post not found.' });
+  }
+
+  await sendSms({
+    to,
+    body: `${payload.authorName} shared a UNAP post: ${payload.shareUrl}`,
+  });
+
+  return res.status(200).json({ message: 'Post link sent by SMS.' });
+}
+
 module.exports = {
   shareUnified,
+  sharePostByEmail,
+  sharePostBySms,
 };

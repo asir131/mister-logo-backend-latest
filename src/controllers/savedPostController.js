@@ -174,6 +174,7 @@ async function getSavedPosts(req, res) {
       $project: {
         _id: '$post._id',
         description: '$post.description',
+        mentions: '$post.mentions',
         mediaType: '$post.mediaType',
         mediaUrl: '$post.mediaUrl',
         createdAt: '$post.createdAt',

@@ -390,6 +390,7 @@ async function getUserPosts(req, res) {
         $project: {
           _id: 1,
           description: 1,
+          mentions: 1,
           mediaType: 1,
           mediaUrl: 1,
           mediaPreviewUrl: 1,

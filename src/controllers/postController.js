@@ -14,6 +14,7 @@ const { createSignedReadUrlFromUrl, createSignedReadUrlFromObjectName } = requir
 const { enqueuePostShare } = require('../services/shareQueue');
 const outstandApi = require('../services/outstandApi');
 const { resolveAccountsForUser } = require('../services/outstandAccounts');
+const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 const UBlast = require('../models/UBlast');
 const User = require('../models/User');
 const VIDEO_DIRECT_UPLOAD_LIMIT_BYTES =
@@ -88,6 +89,148 @@ function toPlayableCloudinaryVideoUrl(url) {
     '/video/upload/',
     '/video/upload/f_mp4,vc_h264,ac_aac,q_auto:best/'
   );
+}
+
+function normalizeMentionIds(value) {
+  if (value === undefined || value === null || value === '') return [];
+  let raw = value;
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = raw.split(',');
+    }
+  }
+  if (!Array.isArray(raw)) return [];
+  return Array.from(
+    new Set(
+      raw
+        .map((id) => String(id || '').trim())
+        .filter((id) => mongoose.isValidObjectId(id)),
+    ),
+  );
+}
+
+function extractMentionUsernames(description = '') {
+  const matches = String(description || '').matchAll(/(^|[\s([{"'])@([a-zA-Z0-9_.-]{2,30})/g);
+  return Array.from(
+    new Set(
+      Array.from(matches)
+        .map((match) => String(match[2] || '').trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+}
+
+async function resolveMentions({ description = '', mentionIds = [] }) {
+  const ids = normalizeMentionIds(mentionIds);
+  const usernames = extractMentionUsernames(description);
+  if (!ids.length && !usernames.length) return [];
+
+  const or = [];
+  if (ids.length) {
+    or.push({ userId: { $in: ids.map((id) => new mongoose.Types.ObjectId(id)) } });
+  }
+  if (usernames.length) {
+    or.push({
+      username: {
+        $in: usernames.map(
+          (username) => new RegExp(`^${String(username).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        ),
+      },
+    });
+  }
+
+  const profiles = await Profile.find({ $or: or })
+    .select('userId username displayName')
+    .lean();
+
+  const byUserId = new Map();
+  profiles.forEach((profile) => {
+    const userId = String(profile.userId || '');
+    if (!userId || byUserId.has(userId)) return;
+    byUserId.set(userId, {
+      userId,
+      username: String(profile.username || ''),
+      name: String(profile.displayName || profile.username || 'User'),
+    });
+  });
+
+  return Array.from(byUserId.values());
+}
+
+async function resolveDisplayName(userId) {
+  const [user, profile] = await Promise.all([
+    User.findById(userId).select('name').lean(),
+    Profile.findOne({ userId }).select('displayName username').lean(),
+  ]);
+  return profile?.displayName || profile?.username || user?.name || 'Someone';
+}
+
+function notifyMentions({ req, post, actorName, mentions = [], previousMentionIds = [] }) {
+  const actorId = String(post.userId || req.user.id || '');
+  const previousSet = new Set(previousMentionIds.map((id) => String(id || '')));
+  const recipients = mentions
+    .map((mention) => String(mention.userId || '').trim())
+    .filter((id) => id && id !== actorId && !previousSet.has(id));
+
+  if (!recipients.length) return;
+
+  fireAndForgetNotifyAndPush({
+    io: req.app.get('io'),
+    userIds: recipients,
+    title: 'New mention',
+    body: `${actorName} mentioned you in a post.`,
+    type: 'mention',
+    data: {
+      actorUserId: actorId,
+      postId: String(post._id),
+    },
+    screen: '/screens/home/notification',
+  });
+}
+
+async function aggregateEngagementUsers({ collection, postId, userField = 'userId' }) {
+  return collection.aggregate([
+    { $match: { postId: new mongoose.Types.ObjectId(postId) } },
+    {
+      $group: {
+        _id: `$${userField}`,
+        count: { $sum: 1 },
+        latestAt: { $max: '$createdAt' },
+      },
+    },
+    {
+      $lookup: {
+        from: 'users',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'user',
+      },
+    },
+    { $unwind: '$user' },
+    {
+      $lookup: {
+        from: 'profiles',
+        localField: '_id',
+        foreignField: 'userId',
+        as: 'profile',
+      },
+    },
+    { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+    {
+      $project: {
+        _id: 0,
+        userId: '$_id',
+        name: { $ifNull: ['$profile.displayName', '$user.name'] },
+        username: '$profile.username',
+        profileImageUrl: '$profile.profileImageUrl',
+        count: 1,
+        latestAt: 1,
+      },
+    },
+    { $sort: { latestAt: -1, name: 1 } },
+  ]);
 }
 
 function normalizeMediaUrlForPlayback(mediaUrl, mediaType) {
@@ -381,6 +524,10 @@ async function createPost(req, res) {
     }
 
     const isScheduled = Boolean(scheduledForInput);
+    const mentions = await resolveMentions({
+      description,
+      mentionIds: req.body.mentionIds,
+    });
     const shareStatus = isScheduled
       ? {
           twitter: { status: 'none' },
@@ -406,6 +553,7 @@ async function createPost(req, res) {
       shareToFacebook,
       shareToInstagram,
       shareTargets,
+      mentions,
       shareStatus,
       attempts: buildAttemptsFromTargets(shareTargets),
       status: isScheduled ? 'scheduled' : 'published',
@@ -505,6 +653,11 @@ async function createPost(req, res) {
       await Profile.updateOne({ userId }, profileUpdate);
 
       enqueuePostShare(created);
+
+      if (mentions.length) {
+        const actorName = await resolveDisplayName(userId);
+        notifyMentions({ req, post: created, actorName, mentions });
+      }
     }
 
     return res.status(201).json({
@@ -579,6 +732,20 @@ async function updatePost(req, res) {
   const updates = {};
   if (req.body.description !== undefined) {
     updates.description = req.body.description;
+  }
+  const shouldResolveMentions =
+    req.body.description !== undefined || req.body.mentionIds !== undefined;
+  const previousMentionIds = Array.isArray(post.mentions)
+    ? post.mentions.map((mention) => String(mention.userId || '')).filter(Boolean)
+    : [];
+  let resolvedMentions = null;
+  if (shouldResolveMentions) {
+    resolvedMentions = await resolveMentions({
+      description:
+        req.body.description !== undefined ? req.body.description : post.description,
+      mentionIds: req.body.mentionIds,
+    });
+    updates.mentions = resolvedMentions;
   }
   if (req.body.postType !== undefined) {
     const normalized = normalizePostType(req.body.postType);
@@ -753,6 +920,17 @@ async function updatePost(req, res) {
 
   if (updates.shareTargets && post.status !== 'scheduled') {
     enqueuePostShare(post);
+  }
+
+  if (resolvedMentions && post.status !== 'scheduled') {
+    const actorName = await resolveDisplayName(userId);
+    notifyMentions({
+      req,
+      post,
+      actorName,
+      mentions: resolvedMentions,
+      previousMentionIds,
+    });
   }
 
   return res.status(200).json({ post });
@@ -976,6 +1154,83 @@ async function sharePost(req, res) {
   });
 }
 
+async function getPostEngagements(req, res) {
+  const { postId } = req.params;
+
+  if (!mongoose.isValidObjectId(postId)) {
+    return res.status(400).json({ error: 'Invalid post id.' });
+  }
+
+  const post = await Post.findById(postId).select('_id').lean();
+  if (!post) {
+    return res.status(404).json({ error: 'Post not found.' });
+  }
+
+  const postObjectId = new mongoose.Types.ObjectId(postId);
+  const [likeCount, commentCount, shareCount, likes, comments, shares] =
+    await Promise.all([
+      Like.countDocuments({ postId }),
+      Comment.countDocuments({ postId }),
+      Post.countDocuments({ sharedFromPostId: postObjectId }),
+      aggregateEngagementUsers({ collection: Like, postId }),
+      aggregateEngagementUsers({ collection: Comment, postId }),
+      Post.aggregate([
+        { $match: { sharedFromPostId: postObjectId } },
+        {
+          $group: {
+            _id: '$userId',
+            count: { $sum: 1 },
+            latestAt: { $max: '$createdAt' },
+          },
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'user',
+          },
+        },
+        { $unwind: '$user' },
+        {
+          $lookup: {
+            from: 'profiles',
+            localField: '_id',
+            foreignField: 'userId',
+            as: 'profile',
+          },
+        },
+        { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            _id: 0,
+            userId: '$_id',
+            name: { $ifNull: ['$profile.displayName', '$user.name'] },
+            username: '$profile.username',
+            profileImageUrl: '$profile.profileImageUrl',
+            count: 1,
+            latestAt: 1,
+          },
+        },
+        { $sort: { latestAt: -1, name: 1 } },
+      ]),
+    ]);
+
+  return res.status(200).json({
+    counts: {
+      likes: likeCount,
+      comments: commentCount,
+      shares: shareCount,
+    },
+    users: {
+      likes,
+      comments,
+      shares,
+    },
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed <= 0) return fallback;
@@ -1039,6 +1294,12 @@ async function updateScheduledPost(req, res) {
 
   if (req.body.description !== undefined) {
     updates.description = req.body.description;
+  }
+  if (req.body.description !== undefined || req.body.mentionIds !== undefined) {
+    updates.mentions = await resolveMentions({
+      description: req.body.description,
+      mentionIds: req.body.mentionIds,
+    });
   }
   if (req.body.shareToFacebook !== undefined) {
     updates.shareToFacebook = Boolean(req.body.shareToFacebook);
@@ -1354,6 +1615,7 @@ async function listMyPosts(req, res) {
       {
         $project: {
           description: 1,
+          mentions: 1,
           mediaType: 1,
           mediaUrl: 1,
           mediaPreviewUrl: 1,
@@ -1561,6 +1823,7 @@ async function listUclips(req, res) {
       {
         $project: {
           description: 1,
+          mentions: 1,
           mediaType: 1,
           mediaUrl: 1,
           mediaPreviewUrl: 1,
@@ -1749,6 +2012,7 @@ async function getPostById(req, res) {
     {
       $project: {
         description: 1,
+        mentions: 1,
         mediaType: 1,
         mediaUrl: 1,
         mediaPreviewUrl: 1,
@@ -1904,6 +2168,7 @@ async function searchPostsByHashtag(req, res) {
             _id: 1,
             userId: 1,
             description: 1,
+            mentions: 1,
             mediaType: 1,
             mediaUrl: 1,
             mediaPreviewUrl: 1,
@@ -1953,6 +2218,7 @@ module.exports = {
   updatePost,
   sharePost,
   sharePostInternal,
+  getPostEngagements,
   getPostById,
   listScheduledPosts,
   updateScheduledPost,

@@ -168,6 +168,7 @@ async function getFeed(req, res) {
       {
         $project: {
           description: 1,
+          mentions: 1,
           mediaType: 1,
           mediaUrl: 1,
           mediaPreviewUrl: 1,
