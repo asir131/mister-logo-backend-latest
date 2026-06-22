@@ -39,7 +39,7 @@ const {
   deleteAdmin,
   resetAdminPassword,
 } = require('../controllers/adminSettingsController');
-const { listUserPosts, deletePost, regeneratePreview } = require('../controllers/adminPostController');
+const { listUserPosts, getPostDetail, deletePost, regeneratePreview } = require('../controllers/adminPostController');
 const { getTrending } = require('../controllers/trendingController');
 const { getAdminStats } = require('../controllers/adminStatsController');
 const { listModerationActions } = require('../controllers/adminModerationController');
@@ -116,6 +116,7 @@ router.patch('/users/:userId/unrestrict', unrestrictUser);
 router.delete('/users/:userId/linked-accounts', clearLinkedAccounts);
 router.post('/users/delete', deleteUsersBulk);
 router.get('/posts', listUserPosts);
+router.get('/posts/:postId/detail', getPostDetail);
 router.delete('/posts/:postId', deletePost);
 router.post('/posts/:postId/preview', regeneratePreview);
 router.get('/reports', listReports);

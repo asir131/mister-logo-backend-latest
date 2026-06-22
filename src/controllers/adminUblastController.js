@@ -10,6 +10,7 @@ const Comment = require('../models/Comment');
 const User = require('../models/User');
 const UblastOffer = require('../models/UblastOffer');
 const { uploadMediaBuffer } = require('../services/mediaStorage');
+const { createSignedReadUrlFromUrl } = require('../services/gcsStorage');
 const { fireAndForgetNotifyAndPush } = require('../services/notifyAndPush');
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -165,10 +166,24 @@ async function listUblasts(req, res) {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
   const adminId = req.user?.id?.toString?.() || '';
-  const mapped = ublasts.map((ublast) => ({
-    ...ublast,
-    isEditable: !ublast.createdBy || ublast.createdBy.toString() === adminId,
-  }));
+  const mapped = await Promise.all(
+    ublasts.map(async (ublast) => {
+      let signedMediaUrl = '';
+      try {
+        if (ublast.mediaUrl) {
+          const signed = await createSignedReadUrlFromUrl(ublast.mediaUrl, 30);
+          signedMediaUrl = signed.readUrl;
+        }
+      } catch (err) {
+        // Non-GCS or unavailable media falls back to the stored URL/proxy path.
+      }
+      return {
+        ...ublast,
+        signedMediaUrl,
+        isEditable: !ublast.createdBy || ublast.createdBy.toString() === adminId,
+      };
+    }),
+  );
   return res.status(200).json({ ublasts: mapped, page, totalPages, totalCount });
 }
 
@@ -325,7 +340,24 @@ async function listSubmissions(req, res) {
   ]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
-  return res.status(200).json({ submissions, page, totalPages, totalCount });
+  const mapped = await Promise.all(
+    submissions.map(async (submission) => {
+      let signedMediaUrl = '';
+      try {
+        if (submission.mediaUrl) {
+          const signed = await createSignedReadUrlFromUrl(submission.mediaUrl, 30);
+          signedMediaUrl = signed.readUrl;
+        }
+      } catch (err) {
+        // Non-GCS or unavailable media falls back to the stored URL/proxy path.
+      }
+      return {
+        ...submission,
+        signedMediaUrl,
+      };
+    }),
+  );
+  return res.status(200).json({ submissions: mapped, page, totalPages, totalCount });
 }
 
 async function reviewSubmission(req, res) {

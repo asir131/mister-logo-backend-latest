@@ -175,6 +175,7 @@ async function listUserPosts(req, res) {
           description: 1,
           mediaType: 1,
           mediaUrl: 1,
+          mediaPreviewUrl: 1,
           shareTargets: 1,
           shareToFacebook: 1,
           shareToInstagram: 1,
@@ -187,6 +188,7 @@ async function listUserPosts(req, res) {
             _id: '$user._id',
             name: '$user.name',
             email: '$user.email',
+            avatarUrl: '$user.avatarUrl',
             ublastManualBlocked: '$user.ublastManualBlocked',
             ublastBlockedUntil: '$user.ublastBlockedUntil',
             isBlocked: '$user.isBlocked',
@@ -220,11 +222,13 @@ async function listUserPosts(req, res) {
       user: {
         id: post.user?._id,
         name: userName,
-        avatar: post.profile?.profileImageUrl || '',
+        avatar: post.profile?.profileImageUrl || post.user?.avatarUrl || '',
         email: post.user?.email || '',
       },
       content: post.description || '',
       mediaType: post.mediaType,
+      mediaUrl: post.mediaUrl || '',
+      mediaPreviewUrl: post.mediaPreviewUrl || '',
       platforms: Array.from(platforms),
       stats: {
         views: post.viewCount || 0,
@@ -244,6 +248,128 @@ async function listUserPosts(req, res) {
     page,
     totalPages,
     totalCount,
+  });
+}
+
+function mapProfileUser(user, profile) {
+  return {
+    id: user?._id || user?.id || '',
+    name: profile?.displayName || profile?.username || user?.name || 'Unknown',
+    username: profile?.username || '',
+    email: user?.email || '',
+    avatar: profile?.profileImageUrl || user?.avatarUrl || '',
+  };
+}
+
+async function getPostDetail(req, res) {
+  const { postId } = req.params;
+  if (!mongoose.isValidObjectId(postId)) {
+    return res.status(400).json({ error: 'Invalid post id.' });
+  }
+
+  const post = await Post.findById(postId).lean();
+  if (!post) {
+    return res.status(404).json({ error: 'Post not found.' });
+  }
+
+  const [owner, ownerProfile, likeCount, commentCount, comments, likes] = await Promise.all([
+    User.findById(post.userId).select('name email avatarUrl').lean(),
+    Profile.findOne({ userId: post.userId })
+      .select('displayName username profileImageUrl')
+      .lean(),
+    Like.countDocuments({ postId }),
+    Comment.countDocuments({ postId }),
+    Comment.find({ postId, parentCommentId: null })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean(),
+    Like.find({ postId })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean(),
+  ]);
+
+  const userIds = Array.from(
+    new Set([
+      ...comments.map((comment) => comment.userId?.toString()).filter(Boolean),
+      ...likes.map((like) => like.userId?.toString()).filter(Boolean),
+    ]),
+  );
+  const [engagementUsers, engagementProfiles] = await Promise.all([
+    userIds.length
+      ? User.find({ _id: { $in: userIds } }).select('name email avatarUrl').lean()
+      : [],
+    userIds.length
+      ? Profile.find({ userId: { $in: userIds } })
+          .select('userId displayName username profileImageUrl')
+          .lean()
+      : [],
+  ]);
+
+  const userById = new Map(engagementUsers.map((user) => [user._id.toString(), user]));
+  const profileByUserId = new Map(
+    engagementProfiles.map((profile) => [profile.userId.toString(), profile]),
+  );
+  const mapEngagementUser = (userId) => {
+    const id = userId?.toString?.() || '';
+    return mapProfileUser(userById.get(id), profileByUserId.get(id));
+  };
+  let signedMediaUrl = '';
+  let signedPreviewUrl = '';
+  try {
+    if (post.mediaUrl) {
+      const signed = await createSignedReadUrlFromUrl(post.mediaUrl, 30);
+      signedMediaUrl = signed.readUrl;
+    }
+  } catch (err) {
+    // Non-GCS or unavailable media falls back to the stored URL/proxy path.
+  }
+  try {
+    if (post.mediaPreviewUrl) {
+      const signed = await createSignedReadUrlFromUrl(post.mediaPreviewUrl, 30);
+      signedPreviewUrl = signed.readUrl;
+    }
+  } catch (err) {
+    // Non-GCS or unavailable preview falls back to the stored URL/proxy path.
+  }
+
+  return res.status(200).json({
+    post: {
+      id: post._id,
+      userId: post.userId,
+      user: mapProfileUser(owner, ownerProfile),
+      content: post.description || '',
+      mediaType: post.mediaType || '',
+      mediaUrl: post.mediaUrl || '',
+      mediaPreviewUrl: post.mediaPreviewUrl || '',
+      signedMediaUrl,
+      signedPreviewUrl,
+      mediaOriginalUrl: post.mediaOriginalUrl || '',
+      postType: post.postType || 'upost',
+      status: post.status || '',
+      platforms: post.shareTargets || [],
+      viewCount: post.viewCount || 0,
+      createdAt: post.createdAt,
+      updatedAt: post.updatedAt,
+    },
+    counts: {
+      views: post.viewCount || 0,
+      likes: likeCount,
+      comments: commentCount,
+    },
+    comments: comments.map((comment) => ({
+      id: comment._id,
+      text: comment.text,
+      replyCount: comment.replyCount || 0,
+      likeCount: Array.isArray(comment.likedBy) ? comment.likedBy.length : 0,
+      createdAt: comment.createdAt,
+      user: mapEngagementUser(comment.userId),
+    })),
+    likes: likes.map((like) => ({
+      id: like._id,
+      createdAt: like.createdAt,
+      user: mapEngagementUser(like.userId),
+    })),
   });
 }
 
@@ -310,6 +436,7 @@ async function regeneratePreview(req, res) {
 
 module.exports = {
   listUserPosts,
+  getPostDetail,
   deletePost,
   regeneratePreview,
 };

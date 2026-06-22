@@ -5,7 +5,7 @@ const profileSchema = new mongoose.Schema(
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     username: { type: String, required: true, unique: true },
     displayName: { type: String },
-    role: { type: String, required: true },
+    role: { type: String },
     dateOfBirth: { type: Date },
     bio: { type: String },
     profileImageUrl: { type: String },

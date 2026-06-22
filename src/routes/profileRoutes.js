@@ -56,7 +56,7 @@ router.post(
   ]),
   [
     body('username').trim().notEmpty().withMessage('Username is required'),
-    body('role').trim().notEmpty().withMessage('Role is required'),
+    body('role').optional({ nullable: true }).trim(),
     body('displayName').optional({ nullable: true }).trim(),
     dateOfBirthField,
     body('bio').optional({ nullable: true }).trim(),

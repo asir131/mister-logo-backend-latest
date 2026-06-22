@@ -85,7 +85,7 @@ async function listReports(req, res) {
     ].filter(Boolean)),
   );
   const [owners, profiles] = await Promise.all([
-    User.find({ _id: { $in: contentOwnerIds } }).select('name email').lean(),
+    User.find({ _id: { $in: contentOwnerIds } }).select('name email avatarUrl').lean(),
     Profile.find({ userId: { $in: contentOwnerIds } })
       .select('userId displayName username profileImageUrl')
       .lean(),
@@ -115,6 +115,7 @@ async function listReports(req, res) {
             ownerName:
               profile?.displayName || profile?.username || owner?.name || 'Unknown',
             ownerEmail: owner?.email || '',
+            ownerAvatar: profile?.profileImageUrl || owner?.avatarUrl || '',
           }
         : null;
     } else if (report.targetType === 'ucut') {
@@ -131,6 +132,7 @@ async function listReports(req, res) {
             ownerName:
               profile?.displayName || profile?.username || owner?.name || 'Unknown',
             ownerEmail: owner?.email || '',
+            ownerAvatar: profile?.profileImageUrl || owner?.avatarUrl || '',
           }
         : null;
     } else {
