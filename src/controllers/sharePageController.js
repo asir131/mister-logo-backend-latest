@@ -1,6 +1,7 @@
 const Post = require('../models/Post');
 const User = require('../models/User');
 const Profile = require('../models/Profile');
+const mongoose = require('mongoose');
 
 function escapeHtml(value) {
   return String(value || '')
@@ -19,6 +20,20 @@ function buildShareUrl(req, postId) {
   }
   const fallbackBase = process.env.APP_WEB_BASE_URL || '';
   return fallbackBase ? `${fallbackBase.replace(/\/$/, '')}/share/${postId}` : '';
+}
+
+function buildProfileShareUrl(req, profile) {
+  const identifier = String(profile?.username || profile?.userId || profile?._id || '').trim();
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  const path = profile?.username
+    ? `/u/${encodeURIComponent(identifier)}`
+    : `/profile/${encodeURIComponent(identifier)}`;
+  if (host) {
+    return `${protocol}://${host}${path}`;
+  }
+  const fallbackBase = process.env.APP_WEB_BASE_URL || '';
+  return fallbackBase ? `${fallbackBase.replace(/\/$/, '')}${path}` : '';
 }
 
 function buildOrigin(req) {
@@ -41,6 +56,10 @@ function buildAppDeepLink(postId) {
   return `unap://screens/home/post-detail?postId=${encodeURIComponent(String(postId))}`;
 }
 
+function buildProfileAppDeepLink(userId) {
+  return `unap://screens/profile/other-profile?id=${encodeURIComponent(String(userId))}`;
+}
+
 function buildStoreFallbackUrl(req, store = '') {
   const origin = buildOrigin(req);
   const suffix = store ? `/${encodeURIComponent(store)}` : '';
@@ -49,6 +68,11 @@ function buildStoreFallbackUrl(req, store = '') {
 
 function buildAndroidIntentUrl(postId, fallbackUrl) {
   const path = `screens/home/post-detail?postId=${encodeURIComponent(String(postId))}`;
+  return `intent://${path}#Intent;scheme=unap;package=com.mdalifk2002.UNAP;S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
+}
+
+function buildProfileAndroidIntentUrl(userId, fallbackUrl) {
+  const path = `screens/profile/other-profile?id=${encodeURIComponent(String(userId))}`;
   return `intent://${path}#Intent;scheme=unap;package=com.mdalifk2002.UNAP;S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
 }
 
@@ -359,8 +383,290 @@ async function sharePage(req, res) {
   }
 }
 
+async function profileSharePage(req, res) {
+  try {
+    const rawProfileId = String(req.params.profileId || '').trim();
+    if (!rawProfileId || !mongoose.isValidObjectId(rawProfileId)) {
+      return res.status(404).send('Not found');
+    }
+
+    const profile = await Profile.findOne({
+      $or: [{ userId: rawProfileId }, { _id: rawProfileId }],
+    }).lean();
+    if (!profile) {
+      return res.status(404).send('Not found');
+    }
+
+    return renderProfileSharePage(req, res, profile);
+  } catch (err) {
+    console.error('Profile share page error:', err);
+    return res.status(500).send('Error');
+  }
+}
+
+async function usernameSharePage(req, res) {
+  try {
+    const username = String(req.params.username || '').replace(/^@/, '').trim();
+    if (!username) {
+      return res.status(404).send('Not found');
+    }
+
+    const profile = await Profile.findOne({
+      username: new RegExp(`^${username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+    }).lean();
+    if (!profile) {
+      return res.status(404).send('Not found');
+    }
+
+    return renderProfileSharePage(req, res, profile);
+  } catch (err) {
+    console.error('Username share page error:', err);
+    return res.status(500).send('Error');
+  }
+}
+
+async function renderProfileSharePage(req, res, profile) {
+  const user = await User.findById(profile.userId).select('name').lean();
+  const displayName = profile.displayName || profile.username || user?.name || 'UNAP Artist';
+  const username = profile.username ? `@${profile.username}` : '';
+  const title = `${displayName} on UNAP`;
+  const description =
+    profile.bio ||
+    (profile.usnapVideoUrl
+      ? `Watch ${displayName}'s USnap description video on UNAP.`
+      : `Check out ${displayName}'s profile on UNAP.`);
+  const shareUrl = buildProfileShareUrl(req, profile);
+  const appDeepLink = buildProfileAppDeepLink(profile.userId);
+  const androidFallbackUrl = buildStoreFallbackUrl(req, 'android');
+  const iosFallbackUrl = buildStoreFallbackUrl(req, 'ios');
+  const defaultFallbackUrl = buildStoreFallbackUrl(req);
+  const androidIntentUrl = buildProfileAndroidIntentUrl(profile.userId, androidFallbackUrl);
+  const usnapVideoUrl = buildPlayableMediaUrl(req, profile.usnapVideoUrl);
+  const fallbackImageUrl = buildShareImageUrl(req);
+  const avatarImageUrl = buildPlayableMediaUrl(req, profile.profileImageUrl) || fallbackImageUrl;
+  const previewImageUrl =
+    buildPlayableMediaUrl(req, profile.usnapThumbnailUrl) || avatarImageUrl;
+  const usnapMimeType = getMimeType('video', usnapVideoUrl);
+
+  const escapedTitle = escapeHtml(title);
+  const escapedDescription = escapeHtml(description);
+  const escapedShareUrl = escapeHtml(shareUrl);
+  const escapedAppDeepLink = escapeHtml(appDeepLink);
+  const escapedPreviewImageUrl = escapeHtml(previewImageUrl);
+  const escapedAvatarImageUrl = escapeHtml(avatarImageUrl);
+  const escapedUsnapVideoUrl = escapeHtml(usnapVideoUrl);
+  const escapedUsnapMimeType = escapeHtml(usnapMimeType);
+  const escapedDisplayName = escapeHtml(displayName);
+  const escapedUsername = escapeHtml(username);
+  const escapedBio = escapeHtml(profile.bio || '');
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.status(200).send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapedTitle}</title>
+    <link rel="canonical" href="${escapedShareUrl}" />
+    <meta name="description" content="${escapedDescription}" />
+    <meta property="og:title" content="${escapedTitle}" />
+    <meta property="og:description" content="${escapedDescription}" />
+    <meta property="og:url" content="${escapedShareUrl}" />
+    <meta property="og:site_name" content="UNAP" />
+    <meta property="og:type" content="${escapedUsnapVideoUrl ? 'video.other' : 'profile'}" />
+    <meta name="apple-itunes-app" content="app-argument=${escapedAppDeepLink}" />
+    <meta itemprop="name" content="${escapedTitle}" />
+    <meta itemprop="description" content="${escapedDescription}" />
+    <meta itemprop="image" content="${escapedPreviewImageUrl}" />
+    <meta property="og:image" content="${escapedPreviewImageUrl}" />
+    <meta property="og:image:url" content="${escapedPreviewImageUrl}" />
+    <meta property="og:image:secure_url" content="${escapedPreviewImageUrl}" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="UNAP profile preview" />
+    ${
+      escapedUsnapVideoUrl
+        ? `<meta property="og:video" content="${escapedUsnapVideoUrl}" />
+    <meta property="og:video:secure_url" content="${escapedUsnapVideoUrl}" />
+    <meta property="og:video:type" content="${escapedUsnapMimeType}" />
+    <meta property="og:video:width" content="720" />
+    <meta property="og:video:height" content="1280" />`
+        : ''
+    }
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapedTitle}" />
+    <meta name="twitter:description" content="${escapedDescription}" />
+    <meta name="twitter:image" content="${escapedPreviewImageUrl}" />
+    <meta name="twitter:image:alt" content="UNAP profile preview" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #05070b;
+        --panel: #0c111a;
+        --text: #f8fafc;
+        --muted: #a6adbb;
+        --line: rgba(255, 255, 255, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: linear-gradient(180deg, #05070b 0%, #0b1020 100%);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        width: min(920px, 100%);
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .top, .identity {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .top { padding: 6px 0 18px; }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 800;
+      }
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: #fff;
+        color: #05070b;
+        font-weight: 900;
+      }
+      .open-app {
+        border: 1px solid var(--line);
+        color: var(--text);
+        text-decoration: none;
+        padding: 10px 14px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.06);
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .profile {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        overflow: hidden;
+      }
+      .identity {
+        justify-content: flex-start;
+        padding: 18px;
+      }
+      .avatar {
+        width: 74px;
+        height: 74px;
+        border-radius: 999px;
+        object-fit: cover;
+        background: #111827;
+        border: 1px solid var(--line);
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(26px, 5vw, 44px);
+        line-height: 1.1;
+      }
+      .username, .bio {
+        margin: 6px 0 0;
+        color: var(--muted);
+      }
+      .player {
+        border-top: 1px solid var(--line);
+        background: #000;
+      }
+      video, .fallback-image {
+        display: block;
+        width: 100%;
+        max-height: min(76vh, 820px);
+        object-fit: contain;
+        background: #000;
+      }
+      .fallback {
+        padding: 34px 20px;
+        color: var(--muted);
+        text-align: center;
+        background: var(--panel);
+      }
+      @media (max-width: 560px) {
+        main { padding: 14px; }
+        .identity { align-items: flex-start; }
+      }
+    </style>
+    <script>
+      (function () {
+        var deepLink = ${JSON.stringify(appDeepLink)};
+        var androidIntent = ${JSON.stringify(androidIntentUrl)};
+        var androidFallback = ${JSON.stringify(androidFallbackUrl)};
+        var iosFallback = ${JSON.stringify(iosFallbackUrl)};
+        var defaultFallback = ${JSON.stringify(defaultFallbackUrl)};
+        var ua = navigator.userAgent || '';
+        var isAndroid = /Android/i.test(ua);
+        var isIos = /iPhone|iPad|iPod/i.test(ua);
+        var isBot = /bot|crawler|spider|facebookexternalhit|twitterbot|whatsapp|telegram/i.test(ua);
+        if (isBot) return;
+
+        window.__openUnapProfile = function () {
+          var fallback = isIos ? iosFallback : isAndroid ? androidFallback : defaultFallback;
+          var startedAt = Date.now();
+          window.setTimeout(function () {
+            if (Date.now() - startedAt < 2600 && !document.hidden) {
+              window.location.href = fallback;
+            }
+          }, 1600);
+          window.location.href = isAndroid ? androidIntent : deepLink;
+        };
+      })();
+    </script>
+  </head>
+  <body>
+    <main>
+      <div class="top">
+        <div class="brand">
+          <div class="mark">U</div>
+          <span>UNAP</span>
+        </div>
+        <a class="open-app" href="${escapedAppDeepLink}" onclick="if(window.__openUnapProfile){window.__openUnapProfile();return false;}">Open in app</a>
+      </div>
+      <section class="profile">
+        <div class="identity">
+          <img class="avatar" src="${escapedAvatarImageUrl}" alt="${escapedDisplayName}" />
+          <div>
+            <h1>${escapedDisplayName}</h1>
+            ${escapedUsername ? `<p class="username">${escapedUsername}</p>` : ''}
+            ${escapedBio ? `<p class="bio">${escapedBio}</p>` : ''}
+          </div>
+        </div>
+        <div class="player">
+          ${
+            escapedUsnapVideoUrl
+              ? `<video controls playsinline preload="metadata" poster="${escapedPreviewImageUrl}">
+            <source src="${escapedUsnapVideoUrl}" type="${escapedUsnapMimeType}" />
+            Your browser does not support video playback.
+          </video>`
+              : `<div class="fallback">This UNAP profile is available in the app.</div>`
+          }
+        </div>
+      </section>
+    </main>
+  </body>
+</html>`);
+}
+
 module.exports = {
   sharePage,
+  profileSharePage,
+  usernameSharePage,
   appDownloadPage(req, res) {
     const playStoreUrl =
       process.env.PLAY_STORE_URL ||

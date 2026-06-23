@@ -49,6 +49,8 @@ const {
   sharePage,
   shareXLink,
   appDownloadPage,
+  profileSharePage,
+  usernameSharePage,
 } = require("./controllers/sharePageController");
 
 const app = express();
@@ -128,6 +130,8 @@ app.get("/health", (req, res) => {
 // Public share page (Open Graph preview)
 app.get("/share/:postId", sharePage);
 app.get("/share/x/:postId", shareXLink);
+app.get("/profile/:profileId", profileSharePage);
+app.get("/u/:username", usernameSharePage);
 app.get("/download", appDownloadPage);
 app.get("/download/:store", appDownloadPage);
 
