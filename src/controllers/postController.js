@@ -1865,6 +1865,7 @@ async function listUclips(req, res) {
 async function getPostById(req, res) {
   const { id: userId } = req.user;
   const { postId } = req.params;
+  const expectedPostType = String(req.expectedPostType || '').trim();
 
   if (!mongoose.isValidObjectId(postId)) {
     return res.status(400).json({ error: 'Invalid post id.' });
@@ -1881,12 +1882,17 @@ async function getPostById(req, res) {
     return res.status(404).json({ error: 'Post not found.' });
   }
 
+  if (expectedPostType && source.postType !== expectedPostType) {
+    return res.status(404).json({ error: 'Post not found.' });
+  }
+
   const isOwner = source.userId?.toString() === userId.toString();
+  const isAllowedDetailType = expectedPostType ? true : source.postType !== 'uclip';
   const isVisibleToViewer =
     isOwner ||
     ((source.status === 'published' || source.status === undefined) &&
       (source.isApproved === true || source.isApproved === undefined) &&
-      source.postType !== 'uclip');
+      isAllowedDetailType);
 
   if (!isVisibleToViewer) {
     return res.status(404).json({ error: 'Post not found.' });
@@ -2066,6 +2072,11 @@ async function getPostById(req, res) {
   return res.status(200).json({ post: postWithDueAt });
 }
 
+async function getUclipById(req, res) {
+  req.expectedPostType = 'uclip';
+  return getPostById(req, res);
+}
+
 async function deleteCancelledScheduledPost(req, res) {
   const userId = req.user.id;
   const { postId } = req.params;
@@ -2220,6 +2231,7 @@ module.exports = {
   sharePostInternal,
   getPostEngagements,
   getPostById,
+  getUclipById,
   listScheduledPosts,
   updateScheduledPost,
   cancelScheduledPost,

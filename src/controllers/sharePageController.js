@@ -1,4 +1,5 @@
 const Post = require('../models/Post');
+const Ucut = require('../models/Ucut');
 const User = require('../models/User');
 const Profile = require('../models/Profile');
 const mongoose = require('mongoose');
@@ -12,14 +13,20 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function buildShareUrl(req, postId) {
+function buildShareUrl(req, postId, contentType = 'post') {
+  const path =
+    contentType === 'uclips'
+      ? `/share/uclips/${postId}`
+      : contentType === 'ucuts'
+        ? `/share/ucuts/${postId}`
+        : `/share/post/${postId}`;
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
   const host = req.headers['x-forwarded-host'] || req.get('host');
   if (host) {
-    return `${protocol}://${host}/share/${postId}`;
+    return `${protocol}://${host}${path}`;
   }
   const fallbackBase = process.env.APP_WEB_BASE_URL || '';
-  return fallbackBase ? `${fallbackBase.replace(/\/$/, '')}/share/${postId}` : '';
+  return fallbackBase ? `${fallbackBase.replace(/\/$/, '')}${path}` : '';
 }
 
 function buildProfileShareUrl(req, profile) {
@@ -52,7 +59,13 @@ function buildShareImageUrl(req) {
   return buildAbsoluteUrl(req, '/assets/unap-share-thumbnail.jpg?v=2');
 }
 
-function buildAppDeepLink(postId) {
+function buildAppDeepLink(postId, contentType = 'post') {
+  if (contentType === 'uclips') {
+    return `unap://screens/home/uclip-detail?postId=${encodeURIComponent(String(postId))}`;
+  }
+  if (contentType === 'ucuts') {
+    return `unap://screens/home/ucut-detail?ucutId=${encodeURIComponent(String(postId))}`;
+  }
   return `unap://screens/home/post-detail?postId=${encodeURIComponent(String(postId))}`;
 }
 
@@ -60,14 +73,20 @@ function buildProfileAppDeepLink(userId) {
   return `unap://screens/profile/other-profile?id=${encodeURIComponent(String(userId))}`;
 }
 
-function buildStoreFallbackUrl(req, store = '') {
+function buildStoreFallbackUrl(req, store = '', target = '') {
   const origin = buildOrigin(req);
   const suffix = store ? `/${encodeURIComponent(store)}` : '';
-  return origin ? `${origin}/download${suffix}` : `/download${suffix}`;
+  const query = target ? `?target=${encodeURIComponent(target)}` : '';
+  return origin ? `${origin}/download${suffix}${query}` : `/download${suffix}${query}`;
 }
 
-function buildAndroidIntentUrl(postId, fallbackUrl) {
-  const path = `screens/home/post-detail?postId=${encodeURIComponent(String(postId))}`;
+function buildAndroidIntentUrl(postId, fallbackUrl, contentType = 'post') {
+  const path =
+    contentType === 'uclips'
+      ? `screens/home/uclip-detail?postId=${encodeURIComponent(String(postId))}`
+      : contentType === 'ucuts'
+        ? `screens/home/ucut-detail?ucutId=${encodeURIComponent(String(postId))}`
+        : `screens/home/post-detail?postId=${encodeURIComponent(String(postId))}`;
   return `intent://${path}#Intent;scheme=unap;package=com.mdalifk2002.UNAP;S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
 }
 
@@ -127,6 +146,16 @@ async function sharePage(req, res) {
     if (!post) {
       return res.status(404).send('Not found');
     }
+    const requestedContentType = String(req.shareContentType || '').trim();
+    const contentType =
+      requestedContentType ||
+      (post.postType === 'uclip' ? 'uclips' : 'post');
+    if (contentType === 'uclips' && post.postType !== 'uclip') {
+      return res.status(404).send('Not found');
+    }
+    if (contentType === 'post' && post.postType === 'uclip') {
+      return res.status(404).send('Not found');
+    }
 
     const [author, profile] = await Promise.all([
       User.findById(post.userId).select('name').lean(),
@@ -134,14 +163,14 @@ async function sharePage(req, res) {
     ]);
 
     const authorName = profile?.displayName || author?.name || 'UNAP';
-    const title = post.description || 'UNAP Post';
+    const title = post.description || (contentType === 'uclips' ? 'UNAP UClip' : 'UNAP Post');
     const description = `Shared by ${authorName}`;
-    const shareUrl = buildShareUrl(req, post._id);
-    const appDeepLink = buildAppDeepLink(post._id);
-    const androidFallbackUrl = buildStoreFallbackUrl(req, 'android');
-    const iosFallbackUrl = buildStoreFallbackUrl(req, 'ios');
-    const defaultFallbackUrl = buildStoreFallbackUrl(req);
-    const androidIntentUrl = buildAndroidIntentUrl(post._id, androidFallbackUrl);
+    const shareUrl = buildShareUrl(req, post._id, contentType);
+    const appDeepLink = buildAppDeepLink(post._id, contentType);
+    const androidFallbackUrl = buildStoreFallbackUrl(req, 'android', appDeepLink);
+    const iosFallbackUrl = buildStoreFallbackUrl(req, 'ios', appDeepLink);
+    const defaultFallbackUrl = buildStoreFallbackUrl(req, '', appDeepLink);
+    const androidIntentUrl = buildAndroidIntentUrl(post._id, androidFallbackUrl, contentType);
     const mediaType = post.mediaType || '';
     const isVideo = mediaType === 'video';
     const isImage = mediaType === 'image';
@@ -327,7 +356,7 @@ async function sharePage(req, res) {
         var isBot = /bot|crawler|spider|facebookexternalhit|twitterbot|whatsapp|telegram/i.test(ua);
         if (isBot) return;
 
-        window.__openUnapPost = function () {
+        window.__openUnapShare = function () {
           var fallback = isIos ? iosFallback : isAndroid ? androidFallback : defaultFallback;
           var startedAt = Date.now();
           window.setTimeout(function () {
@@ -339,7 +368,7 @@ async function sharePage(req, res) {
         };
 
         if (isAndroid || isIos) {
-          window.setTimeout(window.__openUnapPost, 350);
+          window.setTimeout(window.__openUnapShare, 350);
         }
       })();
     </script>
@@ -351,7 +380,7 @@ async function sharePage(req, res) {
           <div class="mark">U</div>
           <span>UNAP</span>
         </div>
-        <a class="open-app" href="${escapedAppDeepLink}" onclick="if(window.__openUnapPost){window.__openUnapPost();return false;}">Open in app</a>
+        <a class="open-app" href="${escapedAppDeepLink}" onclick="if(window.__openUnapShare){window.__openUnapShare();return false;}">Open in app</a>
       </div>
       <section class="player">
         ${
@@ -379,6 +408,159 @@ async function sharePage(req, res) {
 </html>`);
   } catch (err) {
     console.error('Share page error:', err);
+    return res.status(500).send('Error');
+  }
+}
+
+function sharePostPage(req, res) {
+  req.shareContentType = 'post';
+  return sharePage(req, res);
+}
+
+function shareUclipPage(req, res) {
+  req.shareContentType = 'uclips';
+  return sharePage(req, res);
+}
+
+async function shareUcutPage(req, res) {
+  try {
+    const { ucutId } = req.params;
+    if (!mongoose.isValidObjectId(ucutId)) {
+      return res.status(404).send('Not found');
+    }
+
+    const ucut = await Ucut.findById(ucutId).lean();
+    if (!ucut) {
+      return res.status(404).send('Not found');
+    }
+
+    const [author, profile] = await Promise.all([
+      User.findById(ucut.userId).select('name').lean(),
+      Profile.findOne({ userId: ucut.userId }).select('displayName username').lean(),
+    ]);
+
+    const firstSegment = [...(ucut.segments || [])].sort(
+      (a, b) => (a.order || 0) - (b.order || 0),
+    )[0] || {};
+    const mediaUrl = buildPlayableMediaUrl(req, firstSegment.url || '');
+    const mediaType = ucut.mediaType || ucut.type || '';
+    const isVideo = mediaType === 'video';
+    const isImage = mediaType === 'image';
+    const previewImageUrl =
+      buildPlayableMediaUrl(req, firstSegment.previewUrl || firstSegment.thumbnailUrl || '') ||
+      (isImage ? mediaUrl : '') ||
+      buildShareImageUrl(req);
+    const mimeType = getMimeType(mediaType, mediaUrl);
+    const authorName = profile?.displayName || profile?.username || author?.name || 'UNAP';
+    const title = String(ucut.text || '').trim() || 'UNAP UCut';
+    const description = `Shared by ${authorName}`;
+    const shareUrl = buildShareUrl(req, ucut._id, 'ucuts');
+    const appDeepLink = buildAppDeepLink(ucut._id, 'ucuts');
+    const androidFallbackUrl = buildStoreFallbackUrl(req, 'android', appDeepLink);
+    const iosFallbackUrl = buildStoreFallbackUrl(req, 'ios', appDeepLink);
+    const defaultFallbackUrl = buildStoreFallbackUrl(req, '', appDeepLink);
+    const androidIntentUrl = buildAndroidIntentUrl(ucut._id, androidFallbackUrl, 'ucuts');
+
+    const escapedTitle = escapeHtml(title);
+    const escapedDescription = escapeHtml(description);
+    const escapedShareUrl = escapeHtml(shareUrl);
+    const escapedAppDeepLink = escapeHtml(appDeepLink);
+    const escapedMediaUrl = escapeHtml(mediaUrl);
+    const escapedPreviewImageUrl = escapeHtml(previewImageUrl);
+    const escapedAuthorName = escapeHtml(authorName);
+    const escapedMimeType = escapeHtml(mimeType);
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapedTitle}</title>
+    <meta property="og:title" content="${escapedTitle}" />
+    <meta property="og:description" content="${escapedDescription}" />
+    <meta property="og:url" content="${escapedShareUrl}" />
+    <meta property="og:site_name" content="UNAP" />
+    <meta property="og:type" content="${isVideo ? 'video.other' : 'article'}" />
+    <meta name="apple-itunes-app" content="app-argument=${escapedAppDeepLink}" />
+    <meta property="og:image" content="${escapedPreviewImageUrl}" />
+    <meta property="og:image:secure_url" content="${escapedPreviewImageUrl}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapedTitle}" />
+    <meta name="twitter:description" content="${escapedDescription}" />
+    <meta name="twitter:image" content="${escapedPreviewImageUrl}" />
+    ${
+      isVideo && escapedMediaUrl
+        ? `<meta property="og:video" content="${escapedMediaUrl}" />
+    <meta property="og:video:secure_url" content="${escapedMediaUrl}" />
+    <meta property="og:video:type" content="${escapedMimeType}" />`
+        : ''
+    }
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; background: #05070b; color: #fff; font-family: Arial, sans-serif; }
+      main { width: min(720px, 100%); margin: 0 auto; padding: 18px; }
+      .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 14px; }
+      .brand { font-weight: 800; }
+      .open-app { color: #05070b; background: #fff; border-radius: 8px; padding: 10px 14px; text-decoration: none; font-weight: 700; }
+      .player { background: #000; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,.12); }
+      video, img { display: block; width: 100%; max-height: 82vh; object-fit: contain; background: #000; }
+      .meta { padding-top: 16px; }
+      h1 { margin: 0; font-size: clamp(24px, 5vw, 40px); }
+      p { color: #a6adbb; }
+    </style>
+    <script>
+      (function () {
+        var deepLink = ${JSON.stringify(appDeepLink)};
+        var androidIntent = ${JSON.stringify(androidIntentUrl)};
+        var androidFallback = ${JSON.stringify(androidFallbackUrl)};
+        var iosFallback = ${JSON.stringify(iosFallbackUrl)};
+        var defaultFallback = ${JSON.stringify(defaultFallbackUrl)};
+        var ua = navigator.userAgent || '';
+        var isAndroid = /Android/i.test(ua);
+        var isIos = /iPhone|iPad|iPod/i.test(ua);
+        var isBot = /bot|crawler|spider|facebookexternalhit|twitterbot|whatsapp|telegram/i.test(ua);
+        if (isBot) return;
+        window.__openUnapShare = function () {
+          var fallback = isIos ? iosFallback : isAndroid ? androidFallback : defaultFallback;
+          var startedAt = Date.now();
+          window.setTimeout(function () {
+            if (Date.now() - startedAt < 2600 && !document.hidden) {
+              window.location.href = fallback;
+            }
+          }, 1600);
+          window.location.href = isAndroid ? androidIntent : deepLink;
+        };
+        if (isAndroid || isIos) window.setTimeout(window.__openUnapShare, 350);
+      })();
+    </script>
+  </head>
+  <body>
+    <main>
+      <div class="top">
+        <div class="brand">UNAP</div>
+        <a class="open-app" href="${escapedAppDeepLink}" onclick="if(window.__openUnapShare){window.__openUnapShare();return false;}">Open in app</a>
+      </div>
+      <section class="player">
+        ${
+          isVideo && escapedMediaUrl
+            ? `<video controls playsinline preload="metadata" poster="${escapedPreviewImageUrl}">
+          <source src="${escapedMediaUrl}" type="${escapedMimeType}" />
+        </video>`
+            : isImage && escapedMediaUrl
+              ? `<img src="${escapedMediaUrl}" alt="${escapedTitle}" />`
+              : `<div style="padding:36px;text-align:center;color:#a6adbb">This UCut is available in the UNAP app.</div>`
+        }
+      </section>
+      <section class="meta">
+        <h1>${escapedTitle}</h1>
+        <p>Shared by ${escapedAuthorName}</p>
+      </section>
+    </main>
+  </body>
+</html>`);
+  } catch (err) {
+    console.error('UCut share page error:', err);
     return res.status(500).send('Error');
   }
 }
@@ -437,9 +619,9 @@ async function renderProfileSharePage(req, res, profile) {
       : `Check out ${displayName}'s profile on UNAP.`);
   const shareUrl = buildProfileShareUrl(req, profile);
   const appDeepLink = buildProfileAppDeepLink(profile.userId);
-  const androidFallbackUrl = buildStoreFallbackUrl(req, 'android');
-  const iosFallbackUrl = buildStoreFallbackUrl(req, 'ios');
-  const defaultFallbackUrl = buildStoreFallbackUrl(req);
+  const androidFallbackUrl = buildStoreFallbackUrl(req, 'android', appDeepLink);
+  const iosFallbackUrl = buildStoreFallbackUrl(req, 'ios', appDeepLink);
+  const defaultFallbackUrl = buildStoreFallbackUrl(req, '', appDeepLink);
   const androidIntentUrl = buildProfileAndroidIntentUrl(profile.userId, androidFallbackUrl);
   const usnapVideoUrl = buildPlayableMediaUrl(req, profile.usnapVideoUrl);
   const fallbackImageUrl = buildShareImageUrl(req);
@@ -665,6 +847,9 @@ async function renderProfileSharePage(req, res, profile) {
 
 module.exports = {
   sharePage,
+  sharePostPage,
+  shareUclipPage,
+  shareUcutPage,
   profileSharePage,
   usernameSharePage,
   appDownloadPage(req, res) {
@@ -675,11 +860,23 @@ module.exports = {
       process.env.APP_STORE_URL ||
       'https://apps.apple.com/us/search?term=UNAP';
     const requestedStore = String(req.params.store || '').toLowerCase();
+    const targetDeepLink = String(req.query?.target || '').trim();
     const userAgent = String(req.get('user-agent') || '').toLowerCase();
     const wantsIos =
       ['ios', 'app-store', 'appstore', 'apple'].includes(requestedStore) ||
       (!requestedStore && /iphone|ipad|ipod/.test(userAgent));
-    const targetUrl = wantsIos && appStoreUrl ? appStoreUrl : playStoreUrl;
+    let targetUrl = wantsIos && appStoreUrl ? appStoreUrl : playStoreUrl;
+    if (!wantsIos && targetDeepLink) {
+      try {
+        const parsedStoreUrl = new URL(targetUrl);
+        if (parsedStoreUrl.hostname === 'play.google.com') {
+          parsedStoreUrl.searchParams.set('referrer', `deep_link=${encodeURIComponent(targetDeepLink)}`);
+          targetUrl = parsedStoreUrl.toString();
+        }
+      } catch {
+        // Keep the configured store URL as-is.
+      }
+    }
     const canonicalPath = wantsIos ? '/download/ios' : '/download';
     const canonicalUrl = buildAbsoluteUrl(req, canonicalPath);
     const imageUrl = buildShareImageUrl(req);

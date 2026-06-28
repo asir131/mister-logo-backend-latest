@@ -10,10 +10,10 @@ function buildShareUrl(req, postId) {
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
   const host = req.headers['x-forwarded-host'] || req.get('host');
   if (host) {
-    return `${protocol}://${host}/share/${postId}`;
+    return `${protocol}://${host}/share/post/${postId}`;
   }
   const fallbackBase = process.env.APP_WEB_BASE_URL || '';
-  return fallbackBase ? `${fallbackBase.replace(/\/$/, '')}/share/${postId}` : '';
+  return fallbackBase ? `${fallbackBase.replace(/\/$/, '')}/share/post/${postId}` : '';
 }
 
 function isValidEmail(value) {

@@ -350,6 +350,45 @@ async function listFeed(req, res) {
   });
 }
 
+async function getUcutById(req, res) {
+  const viewerId = req.user.id;
+  const { ucutId } = req.params;
+
+  if (!mongoose.isValidObjectId(ucutId)) {
+    return res.status(400).json({ error: 'Invalid UCut id.' });
+  }
+
+  const ucut = await Ucut.findOne({ _id: ucutId, ...activeUcutFilter() }).lean();
+  if (!ucut) {
+    return res.status(404).json({ error: 'UCut not found.' });
+  }
+
+  const ownerId = ucut.userId.toString();
+  const [user, profile, likeCount, commentCount, viewerLike] = await Promise.all([
+    User.findById(ownerId).select('name').lean(),
+    Profile.findOne({ userId: ownerId }).select('userId displayName username profileImageUrl').lean(),
+    UcutLike.countDocuments({ ucutId }),
+    UcutComment.countDocuments({ ucutId }),
+    UcutLike.findOne({ ucutId, userId: viewerId }).select('_id').lean(),
+  ]);
+
+  return res.status(200).json({
+    ucut: {
+      ...ucut,
+      likeCount,
+      commentCount,
+      viewerHasLiked: Boolean(viewerLike),
+      canComment: true,
+      owner: {
+        id: ownerId,
+        name: profile?.displayName || profile?.username || user?.name || 'Unknown',
+        username: profile?.username || '',
+        profileImageUrl: profile?.profileImageUrl || null,
+      },
+    },
+  });
+}
+
 async function likeUcut(req, res) {
   const userId = req.user.id;
   const { ucutId } = req.params;
@@ -567,6 +606,7 @@ async function deleteUcut(req, res) {
 
 module.exports = {
   createUcut,
+  getUcutById,
   listMyUcuts,
   listFeed,
   listUserUcuts,

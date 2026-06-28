@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const UBlast = require("../models/UBlast");
 const TrendingPlacement = require("../models/TrendingPlacement");
 const Post = require("../models/Post");
+const Like = require("../models/Like");
 const Profile = require("../models/Profile");
 const User = require("../models/User");
 
@@ -66,8 +67,49 @@ async function attachAuthorProfile(posts) {
   });
 }
 
+async function attachTrendingEngagement(posts, viewerId) {
+  if (!Array.isArray(posts) || posts.length === 0) return [];
+
+  const postIds = posts
+    .map((post) => post?._id)
+    .filter((id) => mongoose.isValidObjectId(id));
+
+  if (postIds.length === 0) return posts;
+
+  const [likeCounts, viewerLikes] = await Promise.all([
+    Like.aggregate([
+      { $match: { postId: { $in: postIds } } },
+      { $group: { _id: "$postId", count: { $sum: 1 } } },
+    ]),
+    viewerId
+      ? Like.find({ postId: { $in: postIds }, userId: viewerId })
+          .select("postId")
+          .lean()
+      : [],
+  ]);
+
+  const likeCountByPostId = new Map(
+    likeCounts.map((item) => [String(item._id), item.count]),
+  );
+  const viewerLikedPostIds = new Set(
+    viewerLikes.map((item) => String(item.postId)),
+  );
+
+  return posts.map((post) => {
+    const id = String(post?._id || "");
+    return {
+      ...post,
+      likeCount: likeCountByPostId.get(id) || 0,
+      viewerHasLiked: viewerLikedPostIds.has(id),
+    };
+  });
+}
+
 async function getTrending(req, res) {
   const now = new Date();
+  const viewerId = mongoose.isValidObjectId(req.user?.id)
+    ? new mongoose.Types.ObjectId(req.user.id)
+    : null;
   const section = req.query.section ? String(req.query.section).toLowerCase() : null;
   const limitTop = parsePaging(req.query.topLimit, 16, 16);
   const limitManual = parsePaging(req.query.manualLimit, 16, 16);
@@ -181,7 +223,10 @@ async function getTrending(req, res) {
           .lean(),
       ])
     : [0, []];
-  const topPosts = await attachAuthorProfile(topPostsRaw);
+  const topPosts = await attachTrendingEngagement(
+    await attachAuthorProfile(topPostsRaw),
+    viewerId,
+  );
 
   const manualPlacements = await TrendingPlacement.find({
     section: "manual",
@@ -205,7 +250,10 @@ async function getTrending(req, res) {
         ...postSearchMatch,
       }).lean()
     : [];
-  const manualPosts = await attachAuthorProfile(manualPostsRaw);
+  const manualPosts = await attachTrendingEngagement(
+    await attachAuthorProfile(manualPostsRaw),
+    viewerId,
+  );
 
   const manualById = new Map(
     manualPosts.map((post) => [post._id.toString(), post]),
@@ -303,6 +351,26 @@ async function getTrending(req, res) {
     },
     {
       $lookup: {
+        from: "likes",
+        let: { postId: "$_id", viewerId },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$postId", "$$postId"] },
+                  { $eq: ["$userId", "$$viewerId"] },
+                ],
+              },
+            },
+          },
+          { $limit: 1 },
+        ],
+        as: "viewerLike",
+      },
+    },
+    {
+      $lookup: {
         from: "savedposts",
         let: { postId: "$_id" },
         pipeline: [
@@ -322,6 +390,7 @@ async function getTrending(req, res) {
           $ifNull: [{ $arrayElemAt: ["$savedCounts.count", 0] }, 0],
         },
         viewCount: { $ifNull: ["$viewCount", 0] },
+        viewerHasLiked: { $gt: [{ $size: "$viewerLike" }, 0] },
       },
     },
     {
@@ -363,6 +432,7 @@ async function getTrending(req, res) {
         commentCount: 1,
         saveCount: 1,
         viewCount: 1,
+        viewerHasLiked: 1,
         author: {
           id: "$author._id",
           name: "$author.name",
@@ -394,6 +464,7 @@ async function getTrending(req, res) {
         commentCount: 1,
         saveCount: 1,
         viewCount: 1,
+        viewerHasLiked: 1,
         author: {
           id: "$author._id",
           name: "$author.name",

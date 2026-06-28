@@ -47,6 +47,9 @@ const { startUblastJobs } = require("./jobs/ublastScheduler");
 const { startPostScheduler } = require("./jobs/postScheduler");
 const {
   sharePage,
+  sharePostPage,
+  shareUclipPage,
+  shareUcutPage,
   shareXLink,
   appDownloadPage,
   profileSharePage,
@@ -128,8 +131,14 @@ app.get("/health", (req, res) => {
 });
 
 // Public share page (Open Graph preview)
-app.get("/share/:postId", sharePage);
 app.get("/share/x/:postId", shareXLink);
+app.get("/share/post/:postId", sharePostPage);
+app.get("/share/uclips/:postId", shareUclipPage);
+app.get("/share/ucuts/:ucutId", shareUcutPage);
+app.get("/post/:postId", sharePostPage);
+app.get("/uclips/:postId", shareUclipPage);
+app.get("/ucuts/:ucutId", shareUcutPage);
+app.get("/share/:postId", sharePage);
 app.get("/profile/:profileId", profileSharePage);
 app.get("/u/:username", usernameSharePage);
 app.get("/download", appDownloadPage);

@@ -5,6 +5,7 @@ const multer = require('multer');
 const authenticate = require('../middleware/auth');
 const {
   createUcut,
+  getUcutById,
   listMyUcuts,
   listFeed,
   listUserUcuts,
@@ -52,6 +53,7 @@ router.post(
 router.get('/mine', authenticate, listMyUcuts);
 router.get('/feed', authenticate, listFeed);
 router.get('/user/:userId', authenticate, listUserUcuts);
+router.get('/:ucutId', authenticate, getUcutById);
 router.post('/:ucutId/like', authenticate, likeUcut);
 router.delete('/:ucutId/like', authenticate, unlikeUcut);
 router.get('/:ucutId/comments', authenticate, listComments);
