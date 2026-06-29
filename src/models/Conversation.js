@@ -17,6 +17,12 @@ const conversationSchema = new mongoose.Schema(
       text: { type: String },
       mediaUrl: { type: String },
       mediaType: { type: String },
+      share: {
+        type: { type: String, enum: ['post', 'profile'] },
+        itemId: { type: String },
+        title: { type: String },
+        url: { type: String },
+      },
       createdAt: { type: Date },
     },
   },

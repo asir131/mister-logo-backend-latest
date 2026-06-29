@@ -63,12 +63,36 @@ async function resolveDisplayName(userId) {
   return profile?.displayName || profile?.username || user?.name || 'Someone';
 }
 
-function buildMessagePreview(text, mediaType) {
+function buildMessagePreview(text, mediaType, share) {
+  if (share?.type === 'profile') return 'Shared a profile';
+  if (share?.type === 'post') return 'Shared a post';
   if (text && text.trim()) return text.trim().slice(0, 120);
   if (mediaType === 'image') return 'Sent a photo';
   if (mediaType === 'video') return 'Sent a video';
   if (mediaType === 'audio') return 'Sent an audio message';
   return 'Sent a file';
+}
+
+function normalizeSharePayload(value) {
+  if (!value || typeof value !== 'object') return null;
+  const type = String(value.type || '').trim();
+  if (!['post', 'profile'].includes(type)) return null;
+  const url = String(value.url || '').trim();
+  const title = String(value.title || value.displayName || '').trim();
+  if (!url || !title) return null;
+
+  return {
+    type,
+    itemId: String(value.itemId || value.id || value.profileUserId || '').trim(),
+    title: title.slice(0, 140),
+    description: String(value.description || '').trim().slice(0, 280),
+    url: url.slice(0, 500),
+    image: String(value.image || '').trim().slice(0, 500),
+    username: String(value.username || '').trim().slice(0, 80),
+    displayName: String(value.displayName || title).trim().slice(0, 140),
+    verified: Boolean(value.verified),
+    bio: String(value.bio || '').trim().slice(0, 280),
+  };
 }
 
 async function getBlockInfo(userId, otherUserId) {
@@ -320,6 +344,7 @@ async function sendMessage(req, res) {
   const userId = req.user.id;
   const { userId: otherUserId } = req.params;
   const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  const share = normalizeSharePayload(req.body?.share);
   const file = req.file;
 
   if (!mongoose.isValidObjectId(otherUserId)) {
@@ -330,8 +355,8 @@ async function sendMessage(req, res) {
     return res.status(400).json({ error: 'Cannot chat with yourself.' });
   }
 
-  if (!text && !file) {
-    return res.status(400).json({ error: 'Message text or file is required.' });
+  if (!text && !file && !share) {
+    return res.status(400).json({ error: 'Message text, file, or share is required.' });
   }
 
   const [otherUser] = await Promise.all([
@@ -388,13 +413,22 @@ async function sendMessage(req, res) {
     mediaMime,
     fileName,
     fileSize,
+    share,
   });
 
   const lastMessage = {
     senderId: userId,
-    text,
+    text: text || buildMessagePreview('', mediaType, share),
     mediaUrl,
     mediaType,
+    share: share
+      ? {
+          type: share.type,
+          itemId: share.itemId,
+          title: share.title,
+          url: share.url,
+        }
+      : undefined,
     createdAt: message.createdAt,
   };
 
@@ -423,7 +457,7 @@ async function sendMessage(req, res) {
     io: req.app.get('io'),
     userIds: [otherUserId],
     title: senderName,
-    body: buildMessagePreview(text, mediaType),
+    body: buildMessagePreview(text, mediaType, share),
     type: 'chat',
     data: {
       senderId: userId,

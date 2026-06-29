@@ -1,6 +1,7 @@
 const { validationResult } = require('express-validator');
 
 const Profile = require('../models/Profile');
+const User = require('../models/User');
 const { uploadImageBuffer, uploadMediaBuffer } = require('../services/mediaStorage');
 const { createPreviewFromUrl, getVideoDurationSeconds } = require('../services/videoPreview');
 const {
@@ -223,6 +224,21 @@ function normalizeUsnapDuration(value) {
   return durationMs;
 }
 
+async function attachUsnapPlaybackUrl(profile) {
+  if (!profile?.usnapVideoUrl) return profile;
+  try {
+    const signed = await createSignedReadUrlFromUrl(profile.usnapVideoUrl, 25);
+    return {
+      ...profile,
+      usnapPlaybackUrl: signed.readUrl,
+      usnapPlaybackUrlExpiresAt: signed.expiresAt,
+    };
+  } catch (err) {
+    console.warn('USnap playback URL signing failed:', err?.message || err);
+    return profile;
+  }
+}
+
 async function completeProfile(req, res) {
   const validationError = handleValidation(req, res);
   if (validationError !== null) return;
@@ -265,24 +281,12 @@ async function completeProfile(req, res) {
 
     const profileImageUrl = await uploadProfileImage(req.files?.profileImage?.[0] || req.file, userId);
     const directUsnapVideoUrl = String(req.body.usnapVideoUrl || '').trim();
+    const directUsnapThumbnailUrl = String(req.body.usnapThumbnailUrl || '').trim();
     const usnapUpload =
       (await uploadUsnapVideo(req.files?.usnapVideo?.[0], userId)) ||
       (directUsnapVideoUrl ? { videoUrl: directUsnapVideoUrl, thumbnailUrl: '' } : null);
-    let generatedDirectUsnapThumbnailUrl = '';
-    if (directUsnapVideoUrl && !req.files?.usnapThumbnail?.[0]) {
-      try {
-        const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        generatedDirectUsnapThumbnailUrl = await generateUsnapPreviewFromVideoUrl(
-          directUsnapVideoUrl,
-          userId,
-          uploadId,
-        );
-      } catch (err) {
-        console.warn('USnap direct preview generation failed:', err?.message || err);
-      }
-    }
     const usnapThumbnailUrl =
-      generatedDirectUsnapThumbnailUrl ||
+      directUsnapThumbnailUrl ||
       (await uploadUsnapThumbnail(req.files?.usnapThumbnail?.[0], userId)) ||
       usnapUpload?.thumbnailUrl ||
       undefined;
@@ -399,6 +403,7 @@ async function updateProfile(req, res) {
     }
 
     const directUsnapVideoUrl = String(req.body.usnapVideoUrl || '').trim();
+    const directUsnapThumbnailUrl = String(req.body.usnapThumbnailUrl || '').trim();
     if (req.files?.usnapVideo?.[0] || directUsnapVideoUrl) {
       const usnapDurationMs = normalizeUsnapDuration(req.body.usnapDurationMs);
       if (usnapDurationMs && usnapDurationMs > 60000) {
@@ -411,22 +416,12 @@ async function updateProfile(req, res) {
         req.files?.usnapThumbnail?.[0],
         userId,
       );
-      let generatedDirectUsnapThumbnailUrl = '';
-      if (directUsnapVideoUrl && !uploadedThumbnailUrl) {
-        try {
-          const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          generatedDirectUsnapThumbnailUrl = await generateUsnapPreviewFromVideoUrl(
-            directUsnapVideoUrl,
-            userId,
-            uploadId,
-          );
-        } catch (err) {
-          console.warn('USnap direct preview generation failed:', err?.message || err);
-        }
-      }
       updates.usnapVideoUrl = usnapUpload?.videoUrl || '';
       updates.usnapThumbnailUrl =
-        generatedDirectUsnapThumbnailUrl || uploadedThumbnailUrl || usnapUpload?.thumbnailUrl || '';
+        directUsnapThumbnailUrl ||
+        uploadedThumbnailUrl ||
+        usnapUpload?.thumbnailUrl ||
+        '';
       updates.usnapDurationMs = usnapDurationMs;
     }
 
@@ -464,7 +459,15 @@ async function getProfile(req, res) {
     if (!profile) {
       return res.status(404).json({ error: 'Profile not found.' });
     }
-    profile = await ensureUsnapThumbnail(profile);
+
+    if (!profile.profileImageUrl) {
+      const user = await User.findById(userId).select('avatarUrl').lean();
+      if (user?.avatarUrl) {
+        profile.profileImageUrl = user.avatarUrl;
+      }
+    }
+
+    profile = await attachUsnapPlaybackUrl(profile);
 
     return res.status(200).json({ profile });
   } catch (err) {

@@ -4,6 +4,7 @@ const User = require('../models/User');
 const Profile = require('../models/Profile');
 const Post = require('../models/Post');
 const Follow = require('../models/Follow');
+const { createSignedReadUrlFromUrl } = require('../services/gcsStorage');
 
 function parsePaging(value, fallback, max) {
   const parsed = Number.parseInt(value, 10);
@@ -39,6 +40,21 @@ function calculateAge(dateOfBirth) {
     age -= 1;
   }
   return age >= 0 ? age : null;
+}
+
+async function attachUsnapPlaybackUrl(profile) {
+  if (!profile?.usnapVideoUrl) return profile;
+  try {
+    const signed = await createSignedReadUrlFromUrl(profile.usnapVideoUrl, 25);
+    return {
+      ...profile,
+      usnapPlaybackUrl: signed.readUrl,
+      usnapPlaybackUrlExpiresAt: signed.expiresAt,
+    };
+  } catch (err) {
+    console.warn('USnap playback URL signing failed:', err?.message || err);
+    return profile;
+  }
 }
 
 async function getSuggestedArtists(req, res) {
@@ -173,7 +189,7 @@ async function getUserOverview(req, res) {
       followingId: userId,
     }));
 
-  const safeProfile = profile
+  let safeProfile = profile
     ? (() => {
         const { dateOfBirth, ...restProfile } = profile;
         return {
@@ -182,6 +198,7 @@ async function getUserOverview(req, res) {
         };
       })()
     : null;
+  safeProfile = safeProfile ? await attachUsnapPlaybackUrl(safeProfile) : null;
 
   return res.status(200).json({
     user: {
@@ -471,6 +488,7 @@ async function searchUsers(req, res) {
           { name: searchRegex },
           { displayName: searchRegex },
           { username: searchRegex },
+          { email: searchRegex },
         ],
       },
     },
@@ -480,6 +498,7 @@ async function searchUsers(req, res) {
         userId: '$_id',
         name: '$displayName',
         username: 1,
+        email: 1,
         profileImageUrl: 1,
       },
     },

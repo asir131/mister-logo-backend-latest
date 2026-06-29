@@ -16,6 +16,20 @@ function buildShareUrl(req, postId) {
   return fallbackBase ? `${fallbackBase.replace(/\/$/, '')}/share/post/${postId}` : '';
 }
 
+function buildProfileShareUrl(req, profile) {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  const base =
+    host
+      ? `${protocol}://${host}`
+      : (process.env.APP_WEB_BASE_URL || '').replace(/\/$/, '');
+  if (!base) return '';
+  const username = String(profile?.username || '').replace(/^@/, '').trim();
+  if (username) return `${base}/u/${encodeURIComponent(username)}`;
+  const userId = String(profile?.userId || profile?._id || '').trim();
+  return userId ? `${base}/profile/${encodeURIComponent(userId)}` : '';
+}
+
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
 }
@@ -51,6 +65,37 @@ async function getSharePostPayload(req, postId) {
   return {
     authorName,
     description,
+    shareUrl,
+  };
+}
+
+async function getShareProfilePayload(req, { profileUserId, title, url }) {
+  let profile = null;
+  let user = null;
+  if (profileUserId) {
+    [profile, user] = await Promise.all([
+      Profile.findOne({ userId: profileUserId })
+        .select('userId displayName username bio profileImageUrl')
+        .lean(),
+      User.findById(profileUserId).select('name').lean(),
+    ]);
+  }
+
+  const displayName =
+    profile?.displayName ||
+    profile?.username ||
+    user?.name ||
+    String(title || '').trim() ||
+    'UNAP profile';
+  const shareUrl =
+    String(url || '').trim() ||
+    (profile ? buildProfileShareUrl(req, profile) : '');
+
+  if (!shareUrl) return null;
+
+  return {
+    displayName,
+    description: 'Check out this profile on UNAP.',
     shareUrl,
   };
 }
@@ -150,27 +195,33 @@ async function sharePostByEmail(req, res) {
 }
 
 async function sharePostBySms(req, res) {
-  const { postId, phoneNumber } = req.body || {};
-  if (!postId) {
-    return res.status(400).json({ error: 'postId is required.' });
-  }
+  const { postId, phoneNumber, type, profileUserId, title, url } = req.body || {};
 
   const to = normalizePhone(phoneNumber);
   if (!/^\+\d{8,15}$/.test(to)) {
     return res.status(400).json({ error: 'Phone number must include country code.' });
   }
 
-  const payload = await getSharePostPayload(req, postId);
+  const isProfileShare = type === 'profile';
+  if (!isProfileShare && !postId) {
+    return res.status(400).json({ error: 'postId is required.' });
+  }
+
+  const payload = isProfileShare
+    ? await getShareProfilePayload(req, { profileUserId, title, url })
+    : await getSharePostPayload(req, postId);
   if (!payload) {
-    return res.status(404).json({ error: 'Post not found.' });
+    return res.status(404).json({ error: isProfileShare ? 'Profile not found.' : 'Post not found.' });
   }
 
   await sendSms({
     to,
-    body: `${payload.authorName} shared a UNAP post: ${payload.shareUrl}`,
+    body: isProfileShare
+      ? `${payload.description} ${payload.displayName}: ${payload.shareUrl}`
+      : `${payload.authorName} shared a UNAP post: ${payload.shareUrl}`,
   });
 
-  return res.status(200).json({ message: 'Post link sent by SMS.' });
+  return res.status(200).json({ message: isProfileShare ? 'Profile link sent by SMS.' : 'Post link sent by SMS.' });
 }
 
 module.exports = {
